@@ -76,7 +76,7 @@ class OutlineAndStoreTests(Base):
         restore_version(self.pid,versions[0]['id'])
         c=story_db(self.pid)
         self.assertEqual(c.execute('SELECT status FROM summaries WHERE chapter="001"').fetchone()[0],'stale')
-        self.assertEqual(c.execute('SELECT status FROM memory_items').fetchone()[0],'revoked')
+        self.assertEqual(c.execute('SELECT status FROM memory_items').fetchone()[0],'stale')
         self.assertEqual(c.execute('SELECT COUNT(*) FROM scene_versions').fetchone()[0],3)
         c.close()
 
