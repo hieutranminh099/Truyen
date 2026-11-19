@@ -189,13 +189,39 @@ def scene_revision(c, chapter, scene):
     ).fetchone()[0]
 
 
-def invalidate_chapter_memory(c, chapter):
-    c.execute("UPDATE summaries SET status='stale',updated=? WHERE chapter=?", (now(), chapter))
+def supersede_chapter_model_memory(c, chapter):
+    """Remove stale machine proposals from Writer context without erasing approvals.
+
+    An approved machine fact becomes 'stale' and leaves an audit trail for
+    explicit human review. Undecided proposals can be revoked. Call inside
+    the same caller-owned transaction as the scene/summary update.
+    """
+    approved_ids = [
+        row['id'] for row in c.execute(
+            "SELECT id FROM memory_items WHERE chapter=? AND source='model' AND status='approved'",
+            (chapter,),
+        )
+    ]
+    stamp = now()
+    c.executemany(
+        "INSERT INTO memory_audit(item_id,action,stamp) VALUES(?,'stale',?)",
+        ((item_id, stamp) for item_id in approved_ids),
+    )
     c.execute(
-        "UPDATE memory_items SET status='revoked' WHERE chapter=? AND source='model' "
-        "AND status IN ('approved','pending')",
+        "UPDATE memory_items SET status='stale' "
+        "WHERE chapter=? AND source='model' AND status='approved'",
         (chapter,),
     )
+    c.execute(
+        "UPDATE memory_items SET status='revoked' "
+        "WHERE chapter=? AND source='model' AND status='pending'",
+        (chapter,),
+    )
+
+
+def invalidate_chapter_memory(c, chapter):
+    c.execute("UPDATE summaries SET status='stale',updated=? WHERE chapter=?", (now(), chapter))
+    supersede_chapter_model_memory(c, chapter)
 
 
 def get_scene(c, chapter, scene):
