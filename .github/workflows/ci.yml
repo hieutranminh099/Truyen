@@ -39,6 +39,8 @@ jobs:
           NOVEL_DATA_DIR: ${{ runner.temp }}/novel-ci
           NOVEL_HOST: '127.0.0.1'
           NOVEL_CLOUD_ENABLED: '0'
-        run: python -m novelengine projects
+        run: |
+          python -c "from novelengine.config import Settings; s = Settings(); assert s.host == '127.0.0.1' and not s.cloud_enabled"
+          python -m novelengine projects
       - name: Kiểm thử giả lập
         run: python -m unittest discover -s tests -v
