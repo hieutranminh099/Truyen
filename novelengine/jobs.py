@@ -5,6 +5,7 @@ import threading
 import sqlite3
 from .store import queue_db, story_db, now
 from .config import DATA_ROOT, project_dir
+from .project_state import project_write_lock
 from .outline import load_outline
 from .pipeline import run_series, process_scene
 from .rag import analyze_document, build_embeddings
@@ -219,5 +220,6 @@ class JobQueue:
             # Do not overwrite an existing approved outline; save as candidate for review.
             self._checkpoint(id, 'boundary', 0, 0, 'Đang lưu dàn ý đề xuất')
             path=project_dir(project)/'outline_candidate.json'
-            atomic_text(path,json.dumps(obj,ensure_ascii=False,indent=2))
+            with project_write_lock(project_dir(project)):
+                atomic_text(path,json.dumps(obj,ensure_ascii=False,indent=2))
         else:raise ValueError('Loại tác vụ không hỗ trợ')
