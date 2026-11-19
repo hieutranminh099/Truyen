@@ -8,7 +8,7 @@ from math import ceil
 from .outline import load_outline
 from .config import project_dir
 from .store import (story_db, get_scene, save_scene, now, export_chapter,
-                    scene_revision, invalidate_chapter_memory)
+                    scene_revision, invalidate_chapter_memory, supersede_chapter_model_memory)
 from .rag import find_techniques
 
 SYSTEM_WRITER = '''Bạn là nhà văn tiểu thuyết tiếng Việt chuyên nghiệp.
@@ -409,8 +409,9 @@ def summarize_chapter(project_id,ch,ai):
             raise RuntimeError('Chương đã thay đổi trong lúc AI tóm tắt. Hãy tiếp tục tác vụ để tạo lại tóm tắt.')
         c.execute('INSERT OR REPLACE INTO summaries(chapter,body,status,updated) VALUES(?,?,?,?)',
                   (str(ch['id']),summary,'pending',now()))
-        # Old machine proposals from regenerated chapter are superseded, never silently kept canon.
-        c.execute("UPDATE memory_items SET status='revoked' WHERE chapter=? AND source='model' AND status!='revoked'",(str(ch['id']),))
+        # Keep previously approved machine facts for review, but never feed
+        # superseded approvals back into the Writer without human re-approval.
+        supersede_chapter_model_memory(c, chapter_id)
         for kind, subject, content in proposals:
             c.execute(
                 """INSERT INTO memory_items(kind,subject,content,chapter,source,status,visibility,created)
