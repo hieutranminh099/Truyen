@@ -2,6 +2,7 @@ import sqlite3
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
+from multiprocessing import get_context
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import Barrier
@@ -18,6 +19,22 @@ def proposal(event):
     return MemoryRecord("propose", event.event_id, event)
 
 
+def initialize_and_commit(directory, layout_id, event_id, candidates_ready, first_commit):
+    class ConcurrentStore(SQLiteMemoryStore):
+        def _initialize(self, db):
+            super()._initialize(db)
+            candidates_ready.wait(timeout=20)
+            # The second candidate must encounter a destination with a committed record.
+            if event_id == "second" and not first_commit.wait(timeout=20):
+                raise RuntimeError("First process did not commit.")
+
+    store = ConcurrentStore(directory, project_id="demo", layout_id=layout_id)
+    event = MemoryEvent(event_id, StoryPosition(0), "canon", event_id, "Dữ kiện")
+    store.commit([proposal(event)])
+    if event_id == "first":
+        first_commit.set()
+
+
 class MemoryStorageTests(unittest.TestCase):
     def setUp(self):
         temporary = TemporaryDirectory()
@@ -29,6 +46,90 @@ class MemoryStorageTests(unittest.TestCase):
 
     def open_store(self):
         return SQLiteMemoryStore(self.directory, project_id="demo", layout_id=self.contract.layout_id)
+
+    def test_missing_sidecar_is_created_as_a_valid_empty_ledger(self):
+        directory = self.directory / "new-project"
+        directory.mkdir()
+        path = directory / MEMORY_FILENAME
+        self.assertFalse(path.exists())
+        store = SQLiteMemoryStore(directory, project_id="new", layout_id=self.contract.layout_id)
+        self.assertEqual(store.path, path)
+        self.assertTrue(path.read_bytes().startswith(b"SQLite format 3\x00"))
+        reopened = SQLiteMemoryStore(directory, project_id="new", layout_id=self.contract.layout_id).read()
+        self.assertEqual(reopened.revision, 0)
+        self.assertEqual(reopened.journal, ())
+
+    def test_existing_zero_byte_sidecar_is_rejected_without_writes(self):
+        event = MemoryEvent("old", StoryPosition(0), "canon", "A", "Trạng thái cũ.")
+        self.assertEqual(self.store.commit([proposal(event)]), 1)
+        self.store.path.write_bytes(b"")
+        damaged = self.store.path.read_bytes()
+        for operation in (self.open_store, self.store.read):
+            with self.subTest(operation=operation.__name__):
+                with self.assertRaisesRegex(MemoryStorageError, "0 byte"):
+                    operation()
+                self.assertEqual(self.store.path.read_bytes(), damaged)
+
+    def test_existing_non_sqlite_sidecar_is_rejected_without_writes(self):
+        damaged = b"Existing project data without a SQLite header."
+        self.store.path.write_bytes(damaged)
+        with self.assertRaises(MemoryStorageError):
+            self.open_store()
+        self.assertEqual(self.store.path.read_bytes(), damaged)
+
+    def test_truncated_sqlite_sidecar_is_rejected_without_writes(self):
+        event = MemoryEvent("old", StoryPosition(0), "canon", "A", "Trạng thái cũ.")
+        self.store.commit([proposal(event), MemoryRecord("approve", "old")])
+        with closing(sqlite3.connect(self.store.path)) as db:
+            page_size = db.execute("PRAGMA page_size").fetchone()[0]
+        original = self.store.path.read_bytes()
+        for length in (100, len(original) - page_size, len(original) - 1):
+            with self.subTest(length=length):
+                damaged = original[:length]
+                self.store.path.write_bytes(damaged)
+                with self.assertRaises(MemoryStorageError):
+                    self.open_store()
+                self.assertEqual(self.store.path.read_bytes(), damaged)
+
+    def test_sidecar_with_missing_journal_table_is_rejected_without_writes(self):
+        with closing(sqlite3.connect(self.store.path)) as db, db:
+            db.execute("DROP TABLE ledger_journal")
+        damaged = self.store.path.read_bytes()
+        with self.assertRaisesRegex(MemoryStorageError, "ledger_journal"):
+            self.open_store()
+        self.assertEqual(self.store.path.read_bytes(), damaged)
+
+    def test_two_processes_initialize_once_and_keep_the_first_committed_record(self):
+        directory = self.directory / "concurrent"
+        directory.mkdir()
+        context = get_context("spawn")
+        candidates_ready = context.Barrier(2)
+        first_commit = context.Event()
+        processes = [
+            context.Process(
+                target=initialize_and_commit,
+                args=(directory, self.contract.layout_id, event_id, candidates_ready, first_commit),
+            )
+            for event_id in ("first", "second")
+        ]
+        try:
+            for process in processes:
+                process.start()
+            for process in processes:
+                process.join(timeout=25)
+            self.assertEqual([process.exitcode for process in processes], [0, 0])
+        finally:
+            for process in processes:
+                if process.pid is not None:
+                    if process.is_alive():
+                        process.terminate()
+                    process.join()
+                process.close()
+
+        reopened = SQLiteMemoryStore(directory, project_id="demo", layout_id=self.contract.layout_id).read()
+        self.assertEqual(reopened.revision, 2)
+        self.assertEqual([record.event_id for record in reopened.journal], ["first", "second"])
+        self.assertEqual(list(directory.iterdir()), [directory / MEMORY_FILENAME])
 
     def test_reopen_preserves_journal_statuses_evidence_and_projection(self):
         position = self.contract.scene_position("001", "01", beat=1)
@@ -129,7 +230,8 @@ class MemoryStorageTests(unittest.TestCase):
             db.execute("INSERT INTO memory_items VALUES (1, 'canon cũ')")
         before = legacy.read_bytes()
         self.store.commit([proposal(MemoryEvent("a", StoryPosition(0), "canon", "A", "Sổ riêng"))])
-        with self.assertRaises(MemoryStorageError):
+        sidecar_before = self.store.path.read_bytes()
+        with self.assertRaisesRegex(MemoryStorageError, "thuộc dự án"):
             SQLiteMemoryStore(self.directory, project_id="other", layout_id=self.contract.layout_id)
         source = self.contract.to_v4()
         source["chapters"].reverse()
@@ -137,6 +239,7 @@ class MemoryStorageTests(unittest.TestCase):
         with self.assertRaises(MemoryStorageError):
             SQLiteMemoryStore(self.directory, project_id="demo", layout_id=reordered.layout_id)
         self.assertEqual(legacy.read_bytes(), before)
+        self.assertEqual(self.store.path.read_bytes(), sidecar_before)
         self.assertEqual(self.open_store().read().revision, 1)
 
     def test_existing_foreign_database_is_rejected_without_a_schema_change(self):

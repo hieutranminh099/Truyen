@@ -22,6 +22,8 @@ Markdown được trả nguyên văn cho bên gọi. Hồ sơ có cấu trúc gi
 
 `SQLiteMemoryStore(project_dir, project_id=..., layout_id=...)` mở `creative-memory.sqlite3` trong thư mục dự án đã tồn tại. Sidecar có định dạng 1 và ràng buộc với ID dự án cùng thứ tự ID chương/cảnh của hợp đồng. `layout_id` đổi khi chèn, xóa, đổi ID hoặc đổi thứ tự chương/cảnh. Sửa văn bản dưới cùng ID dùng kiểm tra phiên bản cảnh. Nếu đổi thứ tự dàn ý, cần đối chiếu lại `StoryPosition` và các quyền biết trước khi tạo sổ cho thứ tự mới.
 
+- Sổ mới được chuẩn bị trong thư mục tạm cùng hệ thống tệp. Sau khi commit và đóng kết nối, một tiến trình công bố tệp hoàn chỉnh bằng thao tác chỉ thành công khi tên đích còn trống. Tiến trình gặp tên đích đã có sẽ kiểm tra sổ đó ở chế độ chỉ đọc.
+- Khi mở sổ có sẵn, tệp rỗng, tệp bị cắt, định dạng SQLite sai, lược đồ sai hoặc định danh sai trả `MemoryStorageError`. Kiểm thử đối chiếu từng byte của tệp trước và sau khi mở bị từ chối.
 - `read()` trả `StoredMemory` ở một revision đã commit, với `journal`, `status()`, `validate()`, `approved_events()` và `snapshot(before=...)`. Bản đọc dùng được sau khi đóng kết nối.
 - `commit(records, expected_revision=...)` nhận một lô đề xuất và quyết định. Giao dịch `BEGIN IMMEDIATE` nạp sổ mới nhất, kiểm tra phụ thuộc và ghi thêm toàn bộ lô. Lỗi khi duyệt hoặc ghi SQLite làm rollback cả lô. Revision là số bản ghi đã commit. Có thể dùng revision lúc mở phiếu duyệt để phát hiện thay đổi đồng thời.
 - Thử lại cùng đề xuất và quyết định trên cùng trạng thái giữ nguyên nhật ký. Khi gặp `StaleMemoryRevision`, đọc lại rồi kiểm tra các thay đổi trước khi áp dụng quyết định. `MemoryConflict` giữ thông tin về sự kiện bị ảnh hưởng. Khi mở lại, sổ phục hồi chuỗi quyết định và kiểm tra trạng thái duyệt hiện tại.
