@@ -131,7 +131,10 @@ class MemoryStorageTests(unittest.TestCase):
         reopened = SQLiteMemoryStore(directory, project_id="demo", layout_id=self.contract.layout_id).read()
         self.assertEqual(reopened.revision, 2)
         self.assertEqual([record.event_id for record in reopened.journal], ["first", "second"])
-        self.assertEqual(list(directory.iterdir()), [directory / MEMORY_FILENAME])
+        self.assertEqual(
+            {p.name for p in directory.iterdir()},
+            {MEMORY_FILENAME, '.project-write-lock.sqlite3'},
+        )
 
     def test_reopen_preserves_journal_statuses_evidence_and_projection(self):
         position = self.contract.scene_position("001", "01", beat=1)

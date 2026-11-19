@@ -12,6 +12,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 from .ai import json_from_text
 from .store import story_db
+from .config import project_dir
+from .project_state import project_write_lock
 
 
 class _HTMLText(HTMLParser):
@@ -103,19 +105,20 @@ def import_document(project_id, name: str, raw: bytes, license_note: str, rights
     chunks=split_chunks(text)
     if len(chunks)>5000: raise ValueError('Một tài liệu tối đa 5000 đoạn; hãy chia nhỏ')
     digest=hashlib.sha256(raw).hexdigest()
-    c=story_db(project_id)
-    try:
-        old=c.execute('SELECT id FROM documents WHERE sha256=?',(digest,)).fetchone()
-        if old: return {'id':old['id'],'chunks':0,'duplicate':True}
-        from .store import now
-        cur=c.execute('INSERT INTO documents(name,license,sha256,byte_size,imported) VALUES(?,?,?,?,?)',
-                  (name[:180],license_note[:300],digest,len(raw),now()))
-        doc_id=cur.lastrowid
-        c.executemany('INSERT INTO chunks(doc_id,ordinal,body) VALUES(?,?,?)',
-                      [(doc_id,i,x) for i,x in enumerate(chunks)])
-        c.commit()
-        return {'id':doc_id,'chunks':len(chunks),'duplicate':False}
-    finally: c.close()
+    with project_write_lock(project_dir(project_id)):
+        c=story_db(project_id)
+        try:
+            old=c.execute('SELECT id FROM documents WHERE sha256=?',(digest,)).fetchone()
+            if old: return {'id':old['id'],'chunks':0,'duplicate':True}
+            from .store import now
+            cur=c.execute('INSERT INTO documents(name,license,sha256,byte_size,imported) VALUES(?,?,?,?,?)',
+                      (name[:180],license_note[:300],digest,len(raw),now()))
+            doc_id=cur.lastrowid
+            c.executemany('INSERT INTO chunks(doc_id,ordinal,body) VALUES(?,?,?)',
+                          [(doc_id,i,x) for i,x in enumerate(chunks)])
+            c.commit()
+            return {'id':doc_id,'chunks':len(chunks),'duplicate':False}
+        finally: c.close()
 
 
 def analyze_chunk(ai,body: str):
@@ -145,8 +148,9 @@ def analyze_document(project_id,doc_id,ai,limit=20,checkpoint=None):
         for r in rows:
             if checkpoint: checkpoint(count,len(rows))
             technique=analyze_chunk(ai,r['body'])
-            c.execute('UPDATE chunks SET technique=? WHERE id=?',(technique,r['id']))
-            c.commit()
+            with project_write_lock(project_dir(project_id)):
+                c.execute('UPDATE chunks SET technique=? WHERE id=?',(technique,r['id']))
+                c.commit()
             count+=1
         return count
     finally: c.close()
@@ -160,8 +164,10 @@ def build_embeddings(project_id,ai,limit=30,checkpoint=None):
         for r in rows:
             if checkpoint: checkpoint(count,len(rows))
             vec=ai.embed(r['technique'])
-            c.execute('UPDATE chunks SET embedding=? WHERE id=?',(json.dumps(vec,separators=(',',':')),r['id']))
-            c.commit();count+=1
+            with project_write_lock(project_dir(project_id)):
+                c.execute('UPDATE chunks SET embedding=? WHERE id=?',(json.dumps(vec,separators=(',',':')),r['id']))
+                c.commit()
+            count+=1
         return count
     finally: c.close()
 

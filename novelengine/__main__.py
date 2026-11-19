@@ -5,6 +5,7 @@ from .config import Settings,project_dir
 from .store import bootstrap,create_project,projects,story_db,export_chapter
 from .outline import load_outline
 from .server import serve
+from .project_backup import restore_backup
 
 
 def main():
@@ -15,7 +16,14 @@ def main():
     sub.add_parser('projects')
     e=sub.add_parser('export');e.add_argument('project');e.add_argument('--chapter',default='')
     s=sub.add_parser('secrets')
+    r=sub.add_parser('restore-zip', help='Khôi phục ZIP đã xác thực vào DATA ROOT riêng')
+    r.add_argument('archive', help='Đường dẫn bản ZIP')
+    r.add_argument('project_id', help='Giữ nguyên ID dự án trong manifest')
+    r.add_argument('--data-root', required=True, help='Thư mục dữ liệu ĐÍCH mới, ngoài dự án đang chạy')
     args=p.parse_args()
+    if args.cmd == 'restore-zip':
+        print(restore_backup(Path(args.archive), args.project_id, data_root=Path(args.data_root)))
+        return
     bootstrap()
     if args.cmd in (None,'serve'):serve()
     elif args.cmd=='create':print(create_project(args.title,args.id))

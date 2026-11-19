@@ -7,6 +7,7 @@ from decimal import Decimal, InvalidOperation
 from math import ceil
 from .outline import load_outline
 from .config import project_dir
+from .project_state import project_write_lock
 from .store import (story_db, get_scene, save_scene, now, export_chapter,
                     scene_revision, invalidate_chapter_memory, supersede_chapter_model_memory)
 from .rag import find_techniques
@@ -256,19 +257,20 @@ def process_scene(project_id,outline,ch,sc,ai,cloud_critic=False,use_embeddings=
 
     def persist(*steps, invalidate_memory=False):
         nonlocal revision
-        c = story_db(project_id)
-        try:
-            with c:
-                c.execute('BEGIN IMMEDIATE')
-                if scene_revision(c, chapter_id, scene_id) != revision:
-                    raise RuntimeError('Cảnh đã thay đổi trong lúc AI xử lý. Bản đã lưu được giữ lại.')
-                for stage, text in steps:
-                    save_scene(c, chapter_id, scene_id, stage, text, commit=False)
-                if invalidate_memory:
-                    invalidate_chapter_memory(c, chapter_id)
-                revision = scene_revision(c, chapter_id, scene_id)
-        finally:
-            c.close()
+        with project_write_lock(project_dir(project_id)):
+            c = story_db(project_id)
+            try:
+                with c:
+                    c.execute('BEGIN IMMEDIATE')
+                    if scene_revision(c, chapter_id, scene_id) != revision:
+                        raise RuntimeError('Cảnh đã thay đổi trong lúc AI xử lý. Bản đã lưu được giữ lại.')
+                    for stage, text in steps:
+                        save_scene(c, chapter_id, scene_id, stage, text, commit=False)
+                    if invalidate_memory:
+                        invalidate_chapter_memory(c, chapter_id)
+                    revision = scene_revision(c, chapter_id, scene_id)
+            finally:
+                c.close()
 
     min_ratio = scene_min_ratio()
     packet, tips = scene_packet(project_id,outline,ch,sc,ai,use_embeddings,rewriting=rewrite)
@@ -401,26 +403,27 @@ def summarize_chapter(project_id,ch,ai):
         summary, proposals = _parse_chapter_summary(raw)
     except ValueError as exc:
         raise RuntimeError(f'Summary không hợp lệ: {exc}. Hãy tiếp tục tác vụ để tạo lại tóm tắt.') from None
-    c=story_db(project_id)
-    try:
-        c.execute('BEGIN IMMEDIATE')
-        if any(scene_revision(c, chapter_id, scene_id) != revision
-               for scene_id, revision in revisions.items()):
-            raise RuntimeError('Chương đã thay đổi trong lúc AI tóm tắt. Hãy tiếp tục tác vụ để tạo lại tóm tắt.')
-        c.execute('INSERT OR REPLACE INTO summaries(chapter,body,status,updated) VALUES(?,?,?,?)',
-                  (str(ch['id']),summary,'pending',now()))
-        # Keep previously approved machine facts for review, but never feed
-        # superseded approvals back into the Writer without human re-approval.
-        supersede_chapter_model_memory(c, chapter_id)
-        for kind, subject, content in proposals:
-            c.execute(
-                """INSERT INTO memory_items(kind,subject,content,chapter,source,status,visibility,created)
-                   VALUES(?,?,?,?,?,'pending',?,?)""",
-                (kind, subject, content, chapter_id, 'model', 'private' if kind == 'knowledge' else 'public', now()),
-            )
-        c.commit()
-        return 'pending'
-    finally:c.close()
+    with project_write_lock(project_dir(project_id)):
+        c=story_db(project_id)
+        try:
+            c.execute('BEGIN IMMEDIATE')
+            if any(scene_revision(c, chapter_id, scene_id) != revision
+                   for scene_id, revision in revisions.items()):
+                raise RuntimeError('Chương đã thay đổi trong lúc AI tóm tắt. Hãy tiếp tục tác vụ để tạo lại tóm tắt.')
+            c.execute('INSERT OR REPLACE INTO summaries(chapter,body,status,updated) VALUES(?,?,?,?)',
+                      (str(ch['id']),summary,'pending',now()))
+            # Keep previously approved machine facts for review, but never feed
+            # superseded approvals back into the Writer without human re-approval.
+            supersede_chapter_model_memory(c, chapter_id)
+            for kind, subject, content in proposals:
+                c.execute(
+                    """INSERT INTO memory_items(kind,subject,content,chapter,source,status,visibility,created)
+                       VALUES(?,?,?,?,?,'pending',?,?)""",
+                    (kind, subject, content, chapter_id, 'model', 'private' if kind == 'knowledge' else 'public', now()),
+                )
+            c.commit()
+            return 'pending'
+        finally:c.close()
 
 
 def run_series(project_id,ai,*,cloud_critic=False,use_embeddings=False,checkpoint=None):

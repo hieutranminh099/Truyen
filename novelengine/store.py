@@ -114,21 +114,25 @@ def atomic_text(path: Path, text: str):
 
 
 def create_project(title: str, project_id: str = '') -> dict:
-    PROJECTS.mkdir(parents=True, exist_ok=True)
-    ident = slug(project_id or title)
-    d = project_dir(ident)
-    if d.exists():
-        raise FileExistsError('Dự án đã tồn tại: ' + ident)
-    d.mkdir(parents=True)
-    (d / 'exports').mkdir()
-    (d / 'backups').mkdir()
-    outline = sample_outline()
-    outline['title'] = title.strip()[:140] or outline['title']
-    atomic_text(d / 'outline.json', json.dumps(outline, ensure_ascii=False, indent=2))
-    atomic_text(d / 'voice_bible.md', '# Hồ sơ giọng văn\n\nĐiểm nhìn giới hạn.\nLời thoại giàu ẩn ý; không giải thích cảm xúc quá mức.\nĐể hành vi và đồ vật mang ý nghĩa.\nKhông sáo ngữ, không tóm tắt dàn ý thành văn xuôi.\n')
-    c = story_db(ident); c.close()
-    return {'id': ident, 'title': outline['title']}
-
+    from .project_state import project_write_lock, save_project_state
+    DATA_ROOT.mkdir(parents=True, exist_ok=True)
+    with project_write_lock(DATA_ROOT):
+        PROJECTS.mkdir(parents=True, exist_ok=True)
+        ident = slug(project_id or title)
+        d = project_dir(ident)
+        if d.exists():
+            raise FileExistsError('Dự án đã tồn tại: ' + ident)
+        d.mkdir(parents=True)
+        (d / 'exports').mkdir()
+        (d / 'backups').mkdir()
+        outline = sample_outline()
+        outline['title'] = title.strip()[:140] or outline['title']
+        atomic_text(d / 'outline.json', json.dumps(outline, ensure_ascii=False, indent=2))
+        atomic_text(d / 'voice_bible.md', '# Hồ sơ giọng văn\n\nĐiểm nhìn giới hạn.\nLời thoại giàu ẩn ý; không giải thích cảm xúc quá mức.\nĐể hành vi và đồ vật mang ý nghĩa.\nKhông sáo ngữ, không tóm tắt dàn ý thành văn xuôi.\n')
+        save_project_state(d, {'format': 1, 'project_id': ident, 'creative_enabled': False})
+        c = story_db(ident)
+        c.close()
+        return {'id': ident, 'title': outline['title']}
 
 def bootstrap():
     DATA_ROOT.mkdir(parents=True, exist_ok=True)
@@ -157,11 +161,13 @@ def projects():
 
 
 def save_outline(project_id: str, outline: dict | str):
-    out = parse_outline(outline)
-    d = project_dir(project_id)
-    if not d.is_dir(): raise FileNotFoundError('Dự án không tồn tại')
-    atomic_text(d / 'outline.json', json.dumps(out, ensure_ascii=False, indent=2))
-    return out
+    from .project_state import project_write_lock
+    with project_write_lock(project_dir(project_id)):
+        out = parse_outline(outline)
+        d = project_dir(project_id)
+        if not d.is_dir(): raise FileNotFoundError('Dự án không tồn tại')
+        atomic_text(d / 'outline.json', json.dumps(out, ensure_ascii=False, indent=2))
+        return out
 
 
 def save_scene(c, chapter, scene, stage, text='', review=None, *, commit=True):
@@ -230,18 +236,20 @@ def get_scene(c, chapter, scene):
 
 
 def export_chapter(project_id: str, chapter: dict):
-    c = story_db(project_id)
-    lines = ['# ' + str(chapter.get('title', chapter['id']))]
-    for sc in chapter['scenes']:
-        r = get_scene(c,chapter['id'],sc['id'])
-        if r and (r['edited'] or r['draft']):
-            lines.extend(['', '## ' + str(sc.get('title',sc['id'])), '', r['edited'] or r['draft'], ''])
-    c.close()
-    d = project_dir(project_id) / 'exports'
-    path = d / ('chapter_' + re.sub(r'[^a-zA-Z0-9_-]', '_', str(chapter['id'])) + '.md')
-    atomic_text(path, '\n'.join(lines).rstrip()+'\n')
-    return path
-
+    from .project_state import project_write_lock
+    with project_write_lock(project_dir(project_id)):
+        c = story_db(project_id)
+        lines = ['# ' + str(chapter.get('title', chapter['id']))]
+        for sc in chapter['scenes']:
+            r = get_scene(c,chapter['id'],sc['id'])
+            if r and (r['edited'] or r['draft']):
+                lines.extend(['', '## ' + str(sc.get('title',sc['id'])), '', r['edited'] or r['draft'], ''])
+        c.close()
+        d = project_dir(project_id) / 'exports'
+        path = d / ('chapter_' + re.sub(r'[^a-zA-Z0-9_-]', '_', str(chapter['id'])) + '.md')
+        atomic_text(path, '\n'.join(lines).rstrip()+'\n')
+        return path
+    
 
 def restore_version(project_id: str, version_id: int):
     c = story_db(project_id)

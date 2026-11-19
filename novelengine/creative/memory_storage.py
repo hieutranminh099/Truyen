@@ -207,30 +207,32 @@ class SQLiteMemoryStore:
             return self._load(db)
 
     def commit(self, records: Iterable[MemoryRecord], *, expected_revision: int | None = None) -> int:
-        """Validate and record a whole batch, returning the committed journal revision."""
-        batch = tuple(records)
-        with self._transaction(write=True) as db:
-            previous = self._load(db)
-            if expected_revision is not None and expected_revision != previous.revision:
-                raise StaleMemoryRevision(expected_revision, previous.revision)
-            ledger = previous._ledger
-            decide = {"approve": ledger.approve, "reject": ledger.reject, "undo": ledger.undo}
-            for record in batch:
-                if record.event is not None:
-                    ledger.propose(record.event)
-                else:
-                    decide[record.action](record.event_id, reason=record.reason)
+        from ..project_state import project_write_lock
+        with project_write_lock(self.path.parent):
+            """Validate and record a whole batch, returning the committed journal revision."""
+            batch = tuple(records)
+            with self._transaction(write=True) as db:
+                previous = self._load(db)
+                if expected_revision is not None and expected_revision != previous.revision:
+                    raise StaleMemoryRevision(expected_revision, previous.revision)
+                ledger = previous._ledger
+                decide = {"approve": ledger.approve, "reject": ledger.reject, "undo": ledger.undo}
+                for record in batch:
+                    if record.event is not None:
+                        ledger.propose(record.event)
+                    else:
+                        decide[record.action](record.event_id, reason=record.reason)
 
-            journal = ledger.journal
-            db.executemany(
-                "INSERT INTO ledger_journal (action, event_id, event_json, reason) VALUES (?, ?, ?, ?)",
-                (
+                journal = ledger.journal
+                db.executemany(
+                    "INSERT INTO ledger_journal (action, event_id, event_json, reason) VALUES (?, ?, ?, ?)",
                     (
-                        record.action, record.event_id,
-                        json.dumps(asdict(record.event), ensure_ascii=False) if record.event is not None else None,
-                        record.reason,
-                    )
-                    for record in journal[previous.revision:]
-                ),
-            )
-            return len(journal)
+                        (
+                            record.action, record.event_id,
+                            json.dumps(asdict(record.event), ensure_ascii=False) if record.event is not None else None,
+                            record.reason,
+                        )
+                        for record in journal[previous.revision:]
+                    ),
+                )
+                return len(journal)
