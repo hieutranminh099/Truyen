@@ -7,7 +7,7 @@ from decimal import Decimal, InvalidOperation
 from math import ceil
 from .outline import load_outline
 from .config import project_dir
-from .project_state import project_write_lock
+from .project_state import project_write_lock, project_state
 from .store import (story_db, get_scene, save_scene, now, export_chapter,
                     scene_revision, invalidate_chapter_memory, supersede_chapter_model_memory)
 from .rag import find_techniques
@@ -45,6 +45,10 @@ def short(s,maxlen=4500):
 
 
 def scene_packet(project_id, outline, ch, sc, ai=None, use_embeddings=False, *, rewriting=False):
+    if project_state(project_dir(project_id), project_id=project_id)['creative_enabled']:
+        from .creative_runtime import creative_packet
+        packet, hints, _ = creative_packet(project_id, outline, ch, sc)
+        return packet, hints
     """Build a prompt from global canon and facts occurring strictly before this scene.
 
     Chapter-scoped legacy memory has no scene-level provenance, so it is only
@@ -264,6 +268,11 @@ def process_scene(project_id,outline,ch,sc,ai,cloud_critic=False,use_embeddings=
                     c.execute('BEGIN IMMEDIATE')
                     if scene_revision(c, chapter_id, scene_id) != revision:
                         raise RuntimeError('Cảnh đã thay đổi trong lúc AI xử lý. Bản đã lưu được giữ lại.')
+                    if memory_revision is not None:
+                        from .creative_runtime import creative_revision
+                        if creative_revision(project_id) != memory_revision:
+                            raise RuntimeError('Creative Memory đã thay đổi trong lúc AI viết. '
+                                               'Bản đã lưu được giữ lại; hãy thử lại.')
                     for stage, text in steps:
                         save_scene(c, chapter_id, scene_id, stage, text, commit=False)
                     if invalidate_memory:
@@ -273,7 +282,14 @@ def process_scene(project_id,outline,ch,sc,ai,cloud_critic=False,use_embeddings=
                 c.close()
 
     min_ratio = scene_min_ratio()
-    packet, tips = scene_packet(project_id,outline,ch,sc,ai,use_embeddings,rewriting=rewrite)
+    creative_enabled = project_state(project_dir(project_id), project_id=project_id)['creative_enabled']
+    memory_revision = None
+    if creative_enabled:
+        from .creative_runtime import creative_packet
+        with project_write_lock(project_dir(project_id)):
+            packet, tips, memory_revision = creative_packet(project_id, outline, ch, sc)
+    else:
+        packet, tips = scene_packet(project_id, outline, ch, sc, ai, use_embeddings, rewriting=rewrite)
     tokens = ai.settings.tokens
     if not row or not row['draft']:
         if progress:
@@ -316,6 +332,13 @@ def process_scene(project_id,outline,ch,sc,ai,cloud_critic=False,use_embeddings=
     if quality['target_words']:
         edit_prompt += (f" Cảnh cần khoảng {quality['target_words']} từ và ít nhất {editor_min_words} từ."
                         ' Nếu bản nháp ngắn, chỉ mở rộng bằng chi tiết có ích cho cảnh và tránh lặp.')
+    if creative_enabled:
+        from .creative.v41_adapters import adapt_voice
+        voice = (project_dir(project_id) / 'voice_bible.md').read_text(encoding='utf8')
+        suggestions = adapt_voice(voice).revision_payload(draft, max_items=4)
+        if suggestions:
+            edit_prompt += ('\nGỢI Ý PHÂN TÍCH PHONG CÁCH (chỉ xem xét khi có căn cứ):\n'
+                            + short(json.dumps(suggestions, ensure_ascii=False), 1400))
     edited = ai.chat(SYSTEM_EDITOR, edit_prompt, role='editor', temperature=.48, max_tokens=tokens)
     edited_words = word_count(edited) if isinstance(edited, str) else 0
     if edited_words < editor_min_words:

@@ -22,7 +22,7 @@ function view(name){
   $('page-title').textContent=({'dashboard':'Tổng quan dự án','outline':'Dàn ý & AI đạo diễn','jobs':'Bộ máy viết tự động','drafts':'Bản thảo','memory':'Trí nhớ thế giới truyện','library':'Kho tri thức văn học','settings':'Kết nối hệ thống'})[name]||'Novel Engine';
   window.scrollTo({top:0,behavior:'instant'});
   if(name==='jobs')void fire(loadJobs);
-  if(name==='memory')void fire(loadMemory);
+  if(name==='memory')void fire(async()=>{await loadMemory();await loadCreative()});
   if(name==='library')void fire(loadLibrary);
   if(name==='drafts')void fire(loadDrafts);
 }
@@ -122,12 +122,86 @@ async function openScene(){
   }
 }
 
-async function loadMemory(){const x=await request('/api/project/'+qp(project)+'/memory');const sums=$('summary-list');sums.innerHTML='';for(const s of x.summaries){const e=item(sums,'Chương '+s.chapter,s.body,s.status);if(s.status==='pending')e.append(btn('Duyệt và tiếp tục',async()=>{await request('/api/project/'+qp(project)+'/approve-chapter',{value:{chapter:s.chapter}});alertMessage('Đã duyệt; công việc sẽ tiếp tục.');await loadMemory();await loadJobs();await loadDashboard()},'primary'))}if(!x.summaries.length)empty(sums,'Chưa có tóm tắt chương.');const mem=$('memory-items');mem.innerHTML='';for(const x1 of x.items){const e=item(mem,`${x1.kind.toUpperCase()} ${x1.subject?'· '+x1.subject:''}`,x1.content,x1.status);const row=document.createElement('div');row.className='btn-row';if(x1.status!=='approved')row.append(btn('Duyệt',()=>memoryAction(x1.id,'approve'),'primary'));if(x1.status==='pending')row.append(btn('Từ chối',()=>memoryAction(x1.id,'reject')));if(x1.status==='approved')row.append(btn('Thu hồi',()=>memoryAction(x1.id,'revoke'),'warn'));e.append(row)}if(!x.items.length)empty(mem,'Chưa có dữ kiện.');}
+async function loadMemory(){const x=await request('/api/project/'+qp(project)+'/memory');const creativeMode=(await request('/api/project/'+qp(project)+'/creative')).enabled;const sums=$('summary-list');sums.innerHTML='';for(const s of x.summaries){const e=item(sums,'Chương '+s.chapter,s.body,s.status);if(s.status==='pending')e.append(btn('Duyệt và tiếp tục',async()=>{await request('/api/project/'+qp(project)+'/approve-chapter',{value:{chapter:s.chapter}});alertMessage('Đã duyệt; công việc sẽ tiếp tục.');await loadMemory();await loadJobs();await loadDashboard()},'primary'))}if(!x.summaries.length)empty(sums,'Chưa có tóm tắt chương.');const mem=$('memory-items');mem.innerHTML='';for(const x1 of x.items){const e=item(mem,`${x1.kind.toUpperCase()} ${x1.subject?'· '+x1.subject:''}`,x1.content,x1.status);const row=document.createElement('div');row.className='btn-row';if(!creativeMode&&x1.status!=='approved')row.append(btn('Duyệt',()=>memoryAction(x1.id,'approve'),'primary'));if(!creativeMode&&x1.status==='pending')row.append(btn('Từ chối',()=>memoryAction(x1.id,'reject')));if(!creativeMode&&x1.status==='approved')row.append(btn('Thu hồi',()=>memoryAction(x1.id,'revoke'),'warn'));e.append(row)}if(!x.items.length)empty(mem,'Chưa có dữ kiện.');}
 async function memoryAction(id,action){await request('/api/project/'+qp(project)+'/memory-action',{value:{id,action}});await loadMemory();await loadDashboard()}
 async function loadLibrary(){const x=await request('/api/project/'+qp(project)+'/library?q='+qp($('library-query').value));const list=$('doc-list');list.innerHTML='';for(const d of x.items){const e=item(list,d.name,`Quyền: ${d.license} · ${d.chunks??'?'} đoạn · Đã phân tích ${d.analyzed??'?'} đoạn`);e.append(btn('Phân tích tối đa 20 đoạn',async()=>{const j=await request('/api/project/'+qp(project)+'/job',{value:{kind:'analyze',payload:{doc_id:d.id,limit:20}}});alertMessage('Đã xếp hàng công việc #'+j.id);await loadJobs()}))}if(!x.items.length)empty(list,'Chưa có tài liệu hoặc không tìm thấy từ khóa.')}
 async function downloadChapter(){const chapter=$('draft-chapter').value;if(!chapter)throw Error('Hãy chọn chương để xuất');const res=await fetch('/api/project/'+qp(project)+'/export?chapter='+qp(chapter),{headers:{'X-Novel-Token':token}});if(!res.ok){const e=await res.json();throw Error(e.error)}const b=await res.blob();downloadBlob(b,'chapter_'+chapter+'.md')}
 function downloadBlob(blob,name){const link=document.createElement('a');const url=URL.createObjectURL(blob);link.href=url;link.download=name;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1500)}
 async function createBackup(){const x=await request('/api/project/'+qp(project)+'/backup',{value:{}});const res=await fetch('/api/project/'+qp(project)+'/backup?name='+qp(x.name),{headers:{'X-Novel-Token':token}});if(!res.ok)throw Error('Không tải được backup');downloadBlob(await res.blob(),x.name);$('backup-result').textContent='Đã tạo và tải '+x.name}
+
+async function loadCreative(){
+  if(!project)return;
+  const pid=project;
+  const data=await request('/api/project/'+qp(pid)+'/creative');
+  if(pid!==project)return;
+  const enabled=data.enabled;
+  $('creative-enable').hidden=enabled;
+  $('creative-form').hidden=!enabled;
+  $('memory-add').disabled=enabled;
+  $('creative-status').textContent=enabled
+    ? 'Đang bật · Ledger revision '+data.revision+' · '+data.items.length+' sự kiện · Không tự chuyển dữ kiện V4'
+    : 'Đang tắt · dữ liệu V4 cũ được giữ nguyên. Chỉ bật trên dự án chưa có cảnh và canon.';
+  if(!enabled)return;
+  const list=$('creative-items');list.replaceChildren();
+  for(const event of data.items){
+    const source=event.position?.chapter?(' · vị trí '+event.position.chapter+'/'+event.position.scene):' · canon ban đầu';
+    const label=(event.kind||'event')+' · '+(event.subject||event.id);
+    const el=item(list,label,(event.value||'')+source+(event.stale_source?' · NGUỒN CŨ, CẦN DUYỆT LẠI':''),event.stale_source?'stale':event.status);
+    if(event.status==='pending'){
+      el.append(btn('Duyệt',()=>creativeDecide(event.id,'approve',data.revision),'primary'));
+      el.append(btn('Từ chối',()=>creativeDecide(event.id,'reject',data.revision)));
+    }
+    if(event.status==='approved')el.append(btn('Thu hồi',()=>creativeDecide(event.id,'undo',data.revision),'warn'));
+  }
+  if(!data.items.length)empty(list,'Chưa có quyết định Creative. Hãy tạo một đề xuất.');
+  const legacy=$('creative-legacy');legacy.replaceChildren();
+  for(const fact of data.legacy_pending){
+    const el=item(legacy,fact.kind+' · '+(fact.subject||fact.id),fact.content+' · chương '+(fact.chapter||'gốc'),'pending');
+    el.append(btn('Nhập để duyệt',async()=>{
+      const scene_id=fact.chapter?prompt('Cảnh nguồn chính xác trong chương '+fact.chapter+':','01'):'';
+      if(fact.chapter&&!scene_id)return;
+      const subject=prompt('Tên chủ thể / ID dữ kiện:',fact.subject||('v4-'+fact.id));
+      if(!subject)return;
+      const key=['character','knowledge','thread'].includes(fact.kind)?prompt('Key / ID canon hoặc thuộc tính cần ánh xạ:',''):'';
+      if(key===null)return;
+      const value=fact.kind==='knowledge'?prompt('Trạng thái biết (known, unknown, suspected):','known'):null;
+      if(fact.kind==='knowledge'&&value===null)return;
+      await request('/api/project/'+qp(pid)+'/creative-import',{value:{id:fact.id,scene_id:scene_id||'',subject,key:key||'',value}});
+      alertMessage('Đã nhập đề xuất sang Creative, chưa duyệt tự động.');await loadCreative();
+    }));
+  }
+  if(!data.legacy_pending.length)empty(legacy,'Không có đề xuất V4 mới.');
+  const notes=$('creative-notes');notes.replaceChildren();
+  for(const note of data.notes){
+    const el=item(notes,note.name,note.purpose+' · '+note.expected_effect,'approved');
+    el.append(btn('Bỏ ghi chú',async()=>{
+      await request('/api/project/'+qp(pid)+'/creative-note',{value:{action:'delete',note_id:note.note_id}});
+      await loadCreative();
+    },'warn'));
+  }
+  if(!data.notes.length)empty(notes,'Chưa có ghi chú kỹ thuật được duyệt.');
+}
+async function creativeDecide(event_id,action,revision){
+  const reason=prompt('Lý do quyết định / bằng chứng (tùy chọn):','');
+  if(reason===null)return;
+  await request('/api/project/'+qp(project)+'/creative-action',{value:{event_id,action,reason,expected_revision:revision}});
+  await loadCreative();
+}
+async function creativePropose(){
+  const data=await request('/api/project/'+qp(project)+'/creative');
+  if(!data.enabled)throw Error('Creative chưa bật.');
+  const payload={
+    kind:$('creative-kind').value,subject:$('creative-subject').value,
+    value:$('creative-value').value,key:$('creative-key').value,
+    chapter_id:$('creative-chapter').value,scene_id:$('creative-scene').value,
+    evidence:$('creative-evidence').value,expected_revision:data.revision
+  };
+  await request('/api/project/'+qp(project)+'/creative-propose',{value:payload});
+  $('creative-value').value='';
+  alertMessage('Đã lưu đề xuất Creative, cần duyệt trước khi Writer sử dụng.');
+  await loadCreative();
+}
+
 async function beginAuth(){token=$('auth-input').value.trim();if(!token)return;try{await request('/api/bootstrap');sessionStorage.setItem('novel_token',token);$('auth-modal').hidden=true;await loadProjects();await refreshAll()}catch(e){$('auth-error').textContent=e.message;token=''}}
 async function boot(){if(!token){$('auth-modal').hidden=false;return}try{await loadProjects();await refreshAll()}catch(e){token='';sessionStorage.removeItem('novel_token');$('auth-modal').hidden=false;$('auth-error').textContent='Cần xác thực lại: '+e.message}}
 for(const b of document.querySelectorAll('[data-panel]'))b.addEventListener('click',()=>view(b.dataset.panel));
@@ -149,7 +223,22 @@ $('edit-scene').addEventListener('click',()=>fire(async()=>{if(!selectedScene)th
 $('cancel-scene-edit').addEventListener('click',()=>{$('manual-edit-box').hidden=true;$('draft-text').hidden=false});
 $('save-scene-edit').addEventListener('click',()=>fire(async()=>{if(!selectedScene)throw Error('Hãy mở cảnh trước');if(!confirm('Lưu bản sửa? Tóm tắt chương sẽ cần duyệt lại.'))return;await request('/api/project/'+qp(project)+'/scene-edit',{value:{...selectedScene,text:$('manual-edit-text').value}});await openScene();alertMessage('Đã lưu bản sửa vào lịch sử phiên bản')}));
 $('rewrite-scene').addEventListener('click',()=>fire(async()=>{if(!selectedScene)throw Error('Chọn cảnh để viết lại');if(!confirm('Viết lại cảnh sẽ làm tóm tắt chương cũ mất hiệu lực, giữ bản cũ trong lịch sử. Tiếp tục?'))return;const j=await request('/api/project/'+qp(project)+'/job',{value:{kind:'rewrite',payload:selectedScene}});alertMessage('Đã xếp hàng viết lại #'+j.id);view('jobs')}));
-$('reload-memory').addEventListener('click',()=>fire(loadMemory));
+$('reload-memory').addEventListener('click',()=>fire(async()=>{await loadMemory();await loadCreative()}));
+$('creative-refresh').addEventListener('click',()=>fire(loadCreative));
+$('creative-enable').addEventListener('click',()=>fire(async()=>{
+  if(!confirm('Chỉ bật Creative trên dự án sạch, chưa có cảnh/canon. Việc này tạo sidecar bền vững; tiếp tục?'))return;
+  await request('/api/project/'+qp(project)+'/creative-enable',{value:{confirm:true}});
+  await loadCreative();alertMessage('Creative đã bật. Hãy tạo và duyệt dữ kiện có nguồn.');
+}));
+$('creative-propose').addEventListener('click',()=>fire(creativePropose));
+$('creative-note-add').addEventListener('click',()=>fire(async()=>{
+  await request('/api/project/'+qp(project)+'/creative-note',{value:{
+    action:'add',name:$('creative-note-name').value,purpose:$('creative-note-purpose').value,
+    expected_effect:$('creative-note-effect').value
+  }});
+  $('creative-note-name').value='';$('creative-note-purpose').value='';$('creative-note-effect').value='';
+  await loadCreative();
+}));
 $('memory-add').addEventListener('click',()=>fire(async()=>{await request('/api/project/'+qp(project)+'/memory',{value:{kind:$('memory-kind').value,subject:$('memory-subject').value,content:$('memory-content').value}});$('memory-content').value='';await loadMemory()}));
 $('reload-library').addEventListener('click',()=>fire(loadLibrary));$('library-query').addEventListener('change',()=>fire(loadLibrary));
 $('embed-library').addEventListener('click',()=>fire(async()=>{const j=await request('/api/project/'+qp(project)+'/job',{value:{kind:'embed',payload:{limit:30}}});alertMessage('Đã xếp hàng embedding #'+j.id);view('jobs')}));

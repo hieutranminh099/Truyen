@@ -23,6 +23,8 @@ from .ai import AI
 from .jobs import JobQueue
 from .project_backup import create_backup, restore_backup, MAX_RESTORE_BYTES
 from .project_state import project_write_lock, project_state, enable_creative
+from .creative_runtime import creative_status, creative_propose, creative_action, creative_import_model, creative_note
+from .creative.outline_contract import validate_outline
 
 
 class NovelApp:
@@ -107,6 +109,8 @@ def make_handler(app):
                 if not route:return self.reply({'error':'API route không tồn tại'},404)
                 pid,action=route; d=project_dir(pid)
                 if not (d/'story.db').exists(): raise FileNotFoundError('Dự án không tồn tại')
+                if action=='creative':
+                    return self.reply(creative_status(pid))
                 if action=='creative-status':
                     return self.reply(project_state(d, project_id=pid))
                 if action=='outline':return self.reply({'value':load_outline(d/'outline.json')})
@@ -237,8 +241,22 @@ def make_handler(app):
                         confirmed=q.get('rights',[''])[0]=='yes'
                         return self.reply(import_document(pid,name,self.read_body(MAX_UPLOAD_BYTES),license_note,confirmed),201)
                     data=self.read_json()
+                    if action=='creative-propose':
+                        return self.reply(creative_propose(pid, data), 201)
+                    if action=='creative-action':
+                        return self.reply(creative_action(pid, data))
+                    if action=='creative-import':
+                        return self.reply(creative_import_model(pid, data), 201)
+                    if action=='creative-note':
+                        return self.reply(creative_note(pid, data))
                     if action=='outline':
                         obj=parse_outline(data.get('value',{}))
+                        if project_state(d, project_id=pid)['creative_enabled']:
+                            before_layout = validate_outline(load_outline(d/'outline.json')).require_contract().layout_id
+                            after_layout = validate_outline(obj).require_contract().layout_id
+                            if before_layout != after_layout:
+                                raise ValueError('Không thể đổi thứ tự/ID cảnh khi Creative đang bật. '
+                                                 'Cần đối chiếu và migration dữ kiện trước.')
                         # Existing scenes with changed IDs should never silently mix histories.
                         c=story_db(pid)
                         try:has_data=bool(c.execute('SELECT 1 FROM scenes LIMIT 1').fetchone())
@@ -255,6 +273,11 @@ def make_handler(app):
                         finally:c.close()
                         if has:raise ValueError('Dự án đã có bản thảo; không tự ghi đè dàn ý')
                         obj=parse_outline(candidate.read_text(encoding='utf8'))
+                        if project_state(d, project_id=pid)['creative_enabled']:
+                            before_layout = validate_outline(load_outline(d/'outline.json')).require_contract().layout_id
+                            after_layout = validate_outline(obj).require_contract().layout_id
+                            if before_layout != after_layout:
+                                raise ValueError('Ứng viên thay đổi layout Creative; cần migration trước.')
                         atomic_text(d/'outline.json',json.dumps(obj,ensure_ascii=False,indent=2))
                         return self.reply({'ok':True})
                     if action=='voice':
@@ -281,6 +304,9 @@ def make_handler(app):
                         finally:c.close()
                         app.jobs.wake_approval(pid)
                         return self.reply({'ok':True})
+                    if action in ('memory', 'memory-action') and project_state(d, project_id=pid)['creative_enabled']:
+                        raise ValueError('Dự án đang dùng Creative Ledger. '
+                                         'Hãy duyệt trí nhớ bằng Creative và nhập đề xuất V4 có kiểm chứng nguồn.')
                     if action=='memory':
                         kind=str(data.get('kind','fact'))
                         if kind not in ('fact','timeline','character','knowledge','thread'):raise ValueError('Loại trí nhớ không hợp lệ')

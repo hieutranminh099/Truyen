@@ -509,6 +509,44 @@ class HttpTests(Base):
             self.assertIsNone(archive.testzip())
             self.assertIn('story.db', archive.namelist())
 
+    def test_creative_api_explicit_enable_approval_and_backup(self):
+        base = '/api/project/' + self.pid
+        code, _, raw = self.req(base + '/creative')
+        self.assertEqual(code, 200)
+        self.assertFalse(json.loads(raw)['enabled'])
+        code, _, raw = self.req(base + '/creative-enable', value={'confirm': True})
+        self.assertEqual(code, 200, raw.decode())
+        self.assertTrue(json.loads(raw)['creative_enabled'])
+        code, _, raw = self.req(base + '/creative-propose', value={
+            'kind': 'canon', 'subject': 'rain', 'value': 'Chiếc chuông bị bỏ lại.',
+        })
+        self.assertEqual(code, 201, raw.decode())
+        event_id = json.loads(raw)['id']
+        code, _, raw = self.req(base + '/creative-action', value={
+            'event_id': event_id, 'action': 'approve',
+        })
+        self.assertEqual(code, 200, raw.decode())
+        self.assertEqual(json.loads(raw)['status'], 'approved')
+        code, _, raw = self.req(base + '/creative')
+        self.assertEqual(code, 200)
+        self.assertEqual(json.loads(raw)['revision'], 2)
+        code, _, raw = self.req(base + '/memory', value={
+            'kind': 'fact', 'content': 'Không được ghi vào legacy khi đã bật Creative',
+        })
+        self.assertEqual(code, 400, raw.decode())
+        outline = json.loads(json.dumps(self.outline))
+        outline['chapters'][0]['scenes'].reverse()
+        code, _, raw = self.req(base + '/outline', value={'value': outline})
+        self.assertEqual(code, 400, raw.decode())
+        code, _, raw = self.req(base + '/backup', value={})
+        self.assertEqual(code, 200, raw.decode())
+        name = json.loads(raw)['name']
+        code, _, zipped = self.req(base + '/backup?name=' + name)
+        self.assertEqual(code, 200)
+        with zipfile.ZipFile(io.BytesIO(zipped)) as archive:
+            self.assertIn('creative-memory.sqlite3', archive.namelist())
+            self.assertIn('manifest.json', archive.namelist())
+
     def test_manual_scene_edit_is_versioned(self):
         chapter=self.outline['chapters'][0]['id']
         scene=self.outline['chapters'][0]['scenes'][0]['id']

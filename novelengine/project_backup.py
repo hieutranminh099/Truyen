@@ -63,7 +63,7 @@ def _scene_revisions(db: Path) -> dict:
 
 
 def _safe_source_files(directory: Path) -> list[Path]:
-    names = ('outline.json', 'outline_candidate.json', 'voice_bible.md')
+    names = ('outline.json', 'outline_candidate.json', 'voice_bible.md', 'creative-notes.json')
     paths = [directory / name for name in names]
     paths.extend((directory / 'exports').glob('chapter_*.md'))
     safe = []
@@ -149,7 +149,7 @@ def create_backup(project_id: str) -> str:
 
 def _allowed(name: str) -> bool:
     return (name in {'story.db', SIDECAR_FILE, 'outline.json', 'outline_candidate.json',
-                     'voice_bible.md', STATE_FILE, 'manifest.json'}
+                     'voice_bible.md', 'creative-notes.json', STATE_FILE, 'manifest.json'}
             or bool(re.fullmatch(r'exports/chapter_[A-Za-z0-9_-]+\.md', name)))
 
 
