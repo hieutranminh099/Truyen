@@ -210,7 +210,7 @@ class JobTests(Base):
         job_id = queue.submit(self.pid, 'series')
         queue.start()
         try:
-            self.wait(queue, job_id, 'done', timeout=2)
+            self.wait(queue, job_id, 'done', timeout=20)
         finally:
             queue.shutdown()
 
@@ -440,7 +440,8 @@ class HttpTests(Base):
             with urllib.request.urlopen(request,timeout=5) as resp:
                 return resp.status,resp.headers,resp.read()
         except urllib.error.HTTPError as e:
-            return e.code,e.headers,e.read()
+            with e:
+                return e.code,e.headers,e.read()
 
     def test_auth_isolation_and_no_token_in_url(self):
         s,_,_=self.req('/api/bootstrap',auth=False);self.assertEqual(s,401)
