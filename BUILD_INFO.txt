@@ -1,0 +1,9 @@
+Novel Engine Hybrid V4 Preview
+Ngay: 2026-11-19
+Python: 3.10+
+Giao dien: Windows va Android qua trinh duyet
+Tests: 20 fake-AI unittest (khong xac nhan ket qua Ollama tren RTX 3050).
+Chua co gia han chi phi cloud, true token streaming, SillyTavern world info sync.
+Security: localhost-only by default. Use Tailscale Serve, NOT Funnel.
+
+Xem README_VI.md
