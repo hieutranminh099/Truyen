@@ -1,0 +1,395 @@
+{
+  "schema_version": 1,
+  "title": "Bộ cảnh đánh giá văn học Novel Engine",
+  "scenes": [
+    {
+      "id": "doi-thoai-an-y",
+      "title": "Hai tách trà nguội",
+      "genre": "Đối thoại có ẩn ý",
+      "setting": "Quán trà cạnh sân ga sắp đóng cửa. Một chuyến tàu nữa sẽ qua lúc 22 giờ.",
+      "characters": [
+        "Uyên: chủ quán, từng nhận thư hộ người đi xa.",
+        "Vinh: khách quen, hôm nay không mang chiếc ô thường dùng."
+      ],
+      "goal": "Uyên khiến Vinh hiểu cô đã giữ lại một lá thư, nhưng để anh tự quyết có nhận hay không.",
+      "beats": [
+        "Vinh gọi phần trà cho hai người dù đến một mình.",
+        "Uyên hỏi bóng gió về địa chỉ cũ trong lúc lau bàn.",
+        "Vinh đẩy tách trà thứ hai trở lại trước khi rời cửa."
+      ],
+      "required": [
+        "Tách trà thứ hai còn nguyên.",
+        "Uyên đặt phong bì dưới đĩa lót."
+      ],
+      "withheld": [
+        "Nội dung thư và danh tính người viết."
+      ],
+      "constraints": [
+        "Không ai mở phong bì.",
+        "Giữ điểm nhìn của Uyên."
+      ],
+      "voice": "Lời thoại đời thường, ẩn ý qua khoảng lặng và vật dụng.",
+      "target_words": 380,
+      "criteria": [
+        "Người đọc hiểu điều hai người tránh nói.",
+        "Việc đẩy tách trà có nghĩa rõ trong tình huống."
+      ]
+    },
+    {
+      "id": "xung-dot-tam-ly",
+      "title": "Tiếng vỗ tay ở hành lang",
+      "genre": "Xung đột tâm lý",
+      "setting": "Hậu trường nhà hát tỉnh trước lúc trao giải. Tiếng sân khấu vọng qua tường.",
+      "characters": [
+        "Hạnh: diễn viên vừa được gọi tên.",
+        "Quỳnh: người phụ diễn góp phần cứu buổi diễn."
+      ],
+      "goal": "Hạnh quyết định có thừa nhận công sức của Quỳnh trước công chúng hay không.",
+      "beats": [
+        "Hạnh thấy tên mình in một mình trên tấm thẻ phát biểu.",
+        "Quỳnh nhờ giữ hộ chiếc kẹp tóc rồi quay vào phòng thay đồ.",
+        "Hạnh sửa câu mở đầu khi nghe người dẫn đếm ngược."
+      ],
+      "required": [
+        "Chiếc kẹp tóc vẫn nằm trong tay Hạnh khi bước ra."
+      ],
+      "withheld": [
+        "Khán giả sẽ phản ứng thế nào."
+      ],
+      "constraints": [
+        "Hạnh chỉ có thể nói khi đến trước micro.",
+        "Quỳnh không biết nội dung lời phát biểu."
+      ],
+      "voice": "Nội tâm gần, căng bằng chi tiết cơ thể và ngắt câu.",
+      "target_words": 450,
+      "criteria": [
+        "Quyết định có giá với cả Hạnh lẫn Quỳnh.",
+        "Động cơ được gợi bằng hành động trước khi phát biểu."
+      ]
+    },
+    {
+      "id": "phan-boi",
+      "title": "Chữ ký trên bản đồ",
+      "genre": "Phản bội bất ngờ",
+      "setting": "Một trạm đò của đội khảo sát. Bản đồ đường tránh lũ vừa bị giao cho công ty khai thác.",
+      "characters": [
+        "Mẫn: dẫn đoàn, chỉ tin hai người.",
+        "Dực: đồng đội đã từng cứu Mẫn."
+      ],
+      "goal": "Mẫn nhận ra Dực đã trao bản đồ và phải tiếp tục phối hợp để đưa đoàn qua sông.",
+      "beats": [
+        "Mẫn tìm thấy ký hiệu riêng của nhóm trên bản sao do người mua đánh rơi.",
+        "Dực giải thích chuyện khác trước khi Mẫn hỏi.",
+        "Mẫn giao Dực giữ dây neo và giữ lại bản sao."
+      ],
+      "required": [
+        "Ký hiệu được vẽ ngược theo thói quen của Dực."
+      ],
+      "withheld": [
+        "Giá thỏa thuận và người mua cuối cùng."
+      ],
+      "constraints": [
+        "Mẫn chưa có bằng chứng ai khác đồng lõa.",
+        "Đoàn vẫn phải qua đò trước khi nước lên."
+      ],
+      "voice": "Kín, thực dụng, sức nặng nằm trong thao tác nhỏ.",
+      "target_words": 420,
+      "criteria": [
+        "Chứng cứ được gieo để cú lật hợp lý.",
+        "Phản ứng của Mẫn hợp cảnh cấp bách."
+      ]
+    },
+    {
+      "id": "bi-mat-gia-dinh",
+      "title": "Tờ lịch khâu trong áo",
+      "genre": "Bí mật gia đình",
+      "setting": "Căn nhà chuẩn bị bàn giao. Thu tháo một chiếc áo cũ khỏi mắc.",
+      "characters": [
+        "Thu: con gái út.",
+        "Bà Ngà: dì của Thu, giữ chìa khóa tủ."
+      ],
+      "goal": "Thu phát hiện ngày sinh được lưu truyền trong nhà có thể đã bị đổi.",
+      "beats": [
+        "Một mảnh lịch cộm ở đường gấu áo.",
+        "Thu so mảnh lịch với ngày ghi trên ảnh gia đình.",
+        "Bà Ngà mời Thu ngồi trước khi trả lời câu hỏi."
+      ],
+      "required": [
+        "Hai mốc ngày lệch đúng bảy ngày."
+      ],
+      "withheld": [
+        "Ai đã sửa ngày và lý do thật."
+      ],
+      "constraints": [
+        "Mảnh lịch chỉ gợi nghi vấn.",
+        "Thu chưa gọi ai ngoài căn nhà."
+      ],
+      "voice": "Thân mật, nhịp chậm, tránh diễn giải cảm xúc trực tiếp.",
+      "target_words": 400,
+      "criteria": [
+        "Nghi vấn nảy sinh từ vật chứng cụ thể.",
+        "Bà Ngà hiện lên như người có động cơ riêng."
+      ]
+    },
+    {
+      "id": "tinh-cam",
+      "title": "Một ô cửa mở hé",
+      "genre": "Tình cảm tinh tế",
+      "setting": "Xe buýt đầu ngày sau một cơn mưa. Ghế cạnh cửa sổ bị dột.",
+      "characters": [
+        "Diệp: mang sổ vẽ.",
+        "Nam: thường để Diệp ngồi cạnh cửa sổ."
+      ],
+      "goal": "Hai người thay đổi cách quan tâm nhau mà không thổ lộ tình cảm.",
+      "beats": [
+        "Diệp chọn ghế ngoài và che vệt nước trên sổ.",
+        "Nam đổi chỗ chỉ để kéo kín cửa sổ.",
+        "Diệp vẽ thêm một chiếc ghế vào bức phác và đưa Nam xem."
+      ],
+      "required": [
+        "Vệt nước còn ở góc sổ.",
+        "Bến xuống của Nam đến trước."
+      ],
+      "withheld": [
+        "Hai người có gặp lại không."
+      ],
+      "constraints": [
+        "Không có lời tỏ tình.",
+        "Chỉ mô tả điều Diệp quan sát được."
+      ],
+      "voice": "Ấm, nhẹ, hình ảnh vừa đủ, thoại ít.",
+      "target_words": 350,
+      "criteria": [
+        "Động tác đổi chỗ có ý nghĩa với cả hai.",
+        "Cảnh chuyển tình cảm mà không dùng sáo ngữ."
+      ]
+    },
+    {
+      "id": "hanh-dong",
+      "title": "Ba nhịp còi",
+      "genre": "Hành động căng thẳng",
+      "setting": "Cầu gỗ trên kênh thoát lũ, ván giữa cầu trơn và đã cong.",
+      "characters": [
+        "Sơn: giữ đầu dây ở bờ gần.",
+        "Lệ: chèo xuồng, nhìn thấy đứa trẻ mắc ở bờ xa."
+      ],
+      "goal": "Hai người đưa đứa trẻ khỏi cầu trước khi dây trượt khỏi cọc.",
+      "beats": [
+        "Tiếng còi một báo xuồng vào vị trí.",
+        "Một tấm ván bật khiến đứa trẻ đứng khựng.",
+        "Lệ hạ mũi xuồng vào tầm với trong khi Sơn giữ dây."
+      ],
+      "required": [
+        "Tiếng còi ba chỉ vang khi trẻ đã lên xuồng."
+      ],
+      "withheld": [
+        "Nguyên nhân khiến đứa trẻ ra cầu."
+      ],
+      "constraints": [
+        "Dây chỉ đủ tới nửa cửa kênh.",
+        "Mỗi hành động phải giữ vị trí nhân vật nhất quán."
+      ],
+      "voice": "Câu gọn nhưng có nhịp, ưu tiên khoảng cách và động tác.",
+      "target_words": 430,
+      "criteria": [
+        "Người đọc theo dõi được vị trí người, xuồng và dây.",
+        "Cao trào được giải bằng phối hợp đã thiết lập."
+      ]
+    },
+    {
+      "id": "trinh-tham",
+      "title": "Giọt sáp trên cửa",
+      "genre": "Trinh thám và suy luận",
+      "setting": "Kho hồ sơ làng, mất một sổ mà dấu niêm phong bên ngoài còn nguyên.",
+      "characters": [
+        "Bích: thủ thư.",
+        "Châu: người giữ kho ca đêm."
+      ],
+      "goal": "Bích loại một giả thuyết nhờ dấu sáp nằm sai phía cánh cửa.",
+      "beats": [
+        "Châu đề nghị kiểm camera sân.",
+        "Bích so vệt sáp với chỗ cánh mở về phía trong.",
+        "Bích xin sổ bàn giao trước khi hỏi ai có chìa."
+      ],
+      "required": [
+        "Có bụi trên sáp nhưng khe cửa sạch."
+      ],
+      "withheld": [
+        "Thủ phạm và nội dung hồ sơ mất."
+      ],
+      "constraints": [
+        "Dấu sáp chỉ bác giả thuyết niêm phong còn nguyên từ tối.",
+        "Bích chỉ dùng các dấu hiệu thấy được."
+      ],
+      "voice": "Chính xác, đối thoại ngắn, suy luận từng bước.",
+      "target_words": 430,
+      "criteria": [
+        "Suy luận có thể kiểm lại từ dấu vết đã nêu.",
+        "Kết luận không vượt quá chứng cứ."
+      ]
+    },
+    {
+      "id": "kinh-di",
+      "title": "Phòng vẫn sáng",
+      "genre": "Kinh dị tâm lý",
+      "setting": "Nhà trọ ven hồ đã mất điện. Từ giường của Mai thấy đốm sáng ngoài cửa.",
+      "characters": [
+        "Mai: khách đi một mình.",
+        "Ông Út: chủ nhà, đã nói hành lang có một đèn pin treo tường."
+      ],
+      "goal": "Mai thử phân biệt ký ức, ánh phản chiếu và tiếng gọi bên ngoài.",
+      "beats": [
+        "Mai che màn hình điện thoại nhưng đốm sáng vẫn còn.",
+        "Có tiếng ai nhắc lại một câu Mai vừa tự nói.",
+        "Mai đặt chìa khóa xuống sàn để xác định hướng nghiêng."
+      ],
+      "required": [
+        "Đốm sáng không chiếu vào khe dưới cửa."
+      ],
+      "withheld": [
+        "Nguồn thật của tiếng nói và ánh sáng."
+      ],
+      "constraints": [
+        "Mai không nhìn xuyên cửa.",
+        "Không khẳng định có ma."
+      ],
+      "voice": "Tiết chế, ít tính từ, tăng nghi ngờ bằng âm thanh.",
+      "target_words": 400,
+      "criteria": [
+        "Nỗi sợ tăng theo phép thử thay vì chỉ qua miêu tả.",
+        "Cả hai cách giải thích vẫn có thể tồn tại."
+      ]
+    },
+    {
+      "id": "chinh-tri",
+      "title": "Chiếc ghế trống",
+      "genre": "Chính trị và đấu trí",
+      "setting": "Hội đồng cảng phải quyết định nơi sơ tán trước giờ thủy triều cao.",
+      "characters": [
+        "Tân: chủ tọa, kiểm soát thứ tự phát biểu.",
+        "Yến: đại diện bến nhỏ, nắm báo cáo thủy triều."
+      ],
+      "goal": "Yến đưa điều khoản kiểm tra an toàn vào nghị quyết mà không làm cuộc họp tan vỡ.",
+      "beats": [
+        "Tân mời Yến nói cuối.",
+        "Yến gửi báo cáo tới thư ký theo điều lệ trước khi đến lượt.",
+        "Tân đề nghị đổi một chữ khiến điều khoản gần mất hiệu lực."
+      ],
+      "required": [
+        "Biên bản phải được đọc lại trước biểu quyết."
+      ],
+      "withheld": [
+        "Ai tài trợ hội đồng và số phiếu cuối cùng."
+      ],
+      "constraints": [
+        "Chủ tọa không thể xóa tài liệu đã vào biên bản.",
+        "Yến không có quyền hoãn biểu quyết đơn phương."
+      ],
+      "voice": "Căng, lịch sự, sức ép nằm ở câu chữ.",
+      "target_words": 480,
+      "criteria": [
+        "Điều lệ quyết định thế cờ một cách hợp lý.",
+        "Mỗi người có lựa chọn chiến thuật thấy được."
+      ]
+    },
+    {
+      "id": "fantasy",
+      "title": "Người vá bóng",
+      "genre": "Fantasy và xây dựng thế giới",
+      "setting": "Chợ đêm đặt trên mái nhà. Mỗi người chỉ được mượn một cái bóng đến rạng sáng.",
+      "characters": [
+        "Sen: thợ vá bóng.",
+        "Khiêm: cậu bé mang bóng của một con sếu."
+      ],
+      "goal": "Sen cho Khiêm thấy giới hạn của phép vá bằng một lựa chọn có giá.",
+      "beats": [
+        "Bóng sếu né khỏi đèn dầu.",
+        "Sen dùng chỉ đen để chỉ chỗ rách trước khi vá.",
+        "Khiêm đề nghị để lại một giờ bóng của mình."
+      ],
+      "required": [
+        "Chỉ đen đứt ngay khi chạm nắng."
+      ],
+      "withheld": [
+        "Vì sao Khiêm mượn bóng sếu."
+      ],
+      "constraints": [
+        "Phép vá không tạo thêm thời gian mượn.",
+        "Trời vẫn chưa sáng ở cuối cảnh."
+      ],
+      "voice": "Giàu hình ảnh nhưng quy tắc bộc lộ qua hành động.",
+      "target_words": 460,
+      "criteria": [
+        "Người đọc có thể nhắc lại quy tắc sau cảnh.",
+        "Cái giá phục vụ xung đột, không chỉ trang trí."
+      ]
+    },
+    {
+      "id": "dao-duc",
+      "title": "Bản tin thứ hai",
+      "genre": "Lựa chọn đạo đức khó khăn",
+      "setting": "Đài phát thanh huyện còn đúng một bản tin đêm trước khi máy phát phải nghỉ.",
+      "characters": [
+        "Cẩm: biên tập viên trực.",
+        "Hòa: người đưa tin sống gần đập.",
+        "An: kỹ thuật viên đang sửa bộ phát."
+      ],
+      "goal": "Cẩm cân nhắc phát cảnh báo sớm hay chờ xác nhận để tránh làm dân hoảng.",
+      "beats": [
+        "Hòa gọi từ điểm nước đã dâng gần mép.",
+        "Cẩm thấy bản tin cũ ghi mốc nước khác.",
+        "Cẩm soạn lời cảnh báo dẫn người dân tới nơi cao mà không khẳng định đập vỡ."
+      ],
+      "required": [
+        "Máy phát còn 30 giây.",
+        "Cẩm nghe rõ Hòa chỉ báo bằng mắt thường."
+      ],
+      "withheld": [
+        "Đập có vỡ và phản ứng của dân."
+      ],
+      "constraints": [
+        "Không kịp xin xác nhận thứ hai.",
+        "Việc phát bản tin có thể làm người dân hiểu sai."
+      ],
+      "voice": "Tỉnh, nhân hậu, giữ lực căng giữa hai trách nhiệm.",
+      "target_words": 450,
+      "criteria": [
+        "Cả hai lựa chọn có lý và có giá.",
+        "Cảnh phân biệt dữ kiện đã biết với suy đoán."
+      ]
+    },
+    {
+      "id": "ket-chuong",
+      "title": "Địa chỉ ngày mai",
+      "genre": "Kết chương tạo tò mò",
+      "setting": "Tủ gửi đồ ga nhỏ lúc sân ga đã hết khách.",
+      "characters": [
+        "Huy: nhân viên ca tối, kiểm tủ thất lạc.",
+        "Lam: chị Huy, luôn dùng địa chỉ nhà cũ khi gửi thư."
+      ],
+      "goal": "Kết chương bằng dấu hiệu buộc Huy phải cân nhắc đổi hành trình ngày mai.",
+      "beats": [
+        "Huy tìm thấy phiếu gửi có nét chữ của Lam.",
+        "Huy đối chiếu số tủ với danh sách cuối ca.",
+        "Mặt sau phiếu là địa chỉ Huy chưa từng đưa cho Lam."
+      ],
+      "required": [
+        "Phiếu có giờ hẹn sáng mai.",
+        "Địa chỉ phiếu không phải nhà cũ."
+      ],
+      "withheld": [
+        "Ai đã để phiếu và thứ gì còn trong tủ."
+      ],
+      "constraints": [
+        "Huy đã khóa khu tủ, không quay vào trong cảnh.",
+        "Không xác nhận Lam đã viết phiếu."
+      ],
+      "voice": "Một chi tiết rõ ở câu cuối, nhịp gọn, giọng đời thường.",
+      "target_words": 360,
+      "criteria": [
+        "Bất ngờ tạo câu hỏi cụ thể từ manh mối đã gieo.",
+        "Cảnh có điểm dừng tự nhiên dù chưa giải đáp."
+      ]
+    }
+  ]
+}
