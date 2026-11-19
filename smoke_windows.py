@@ -28,11 +28,16 @@ class OllamaFixture(BaseHTTPRequestHandler):
             return
         system = payload['messages'][0]['content']
         if payload.get('format') == 'json':
-            text = json.dumps({'critical': [], 'fixes': []})
+            if 'Bạn là thư ký theo dõi' in system:
+                text = json.dumps({'summary': 'An đem chiếc chuông từ bến đò về nhà.', 'proposals': []})
+            else:
+                text = json.dumps({
+                    'critical': [], 'style': [], 'missing': [], 'strengths': [], 'fixes': [],
+                })
         elif 'Chỉnh những câu' in system:
-            text = ('An đặt chuông lên bàn. Ngoài cửa, tiếng mưa đã ngớt. ' * 12).strip()
+            text = ('An đặt chuông lên bàn. Ngoài cửa, tiếng mưa đã ngớt. ' * 28).strip()
         else:
-            text = ('An nghe tiếng chuông đồng gỉ ở bến đò rồi bước xuống thuyền. ' * 15).strip()
+            text = ('An nghe tiếng chuông đồng gỉ ở bến đò rồi bước xuống thuyền. ' * 24).strip()
         body = json.dumps({'message': {'content': text}}).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
