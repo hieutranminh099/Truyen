@@ -63,6 +63,15 @@ class CreativeRuntimeTests(Base):
                                  revised['chapters'][0]['scenes'][0])
         self.assertNotIn('CANON_DUOC_BIET', packet)
 
+    def test_source_event_requires_an_existing_scene_revision(self):
+        enable_creative(self.pid)
+        with self.assertRaisesRegex(ValueError, 'chưa có phiên bản'):
+            creative_propose(self.pid, {
+                'kind': 'canon', 'subject': 'future', 'value': 'Sự kiện chưa có nguồn',
+                'chapter_id': self.ch['id'], 'scene_id': self.sc['id'],
+            })
+        self.assertEqual(creative_status(self.pid)['revision'], 0)
+
     def test_approved_source_revision_becomes_stale_after_rewrite(self):
         enable_creative(self.pid)
         with closing(story_db(self.pid)) as db:
