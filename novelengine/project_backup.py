@@ -44,6 +44,9 @@ def _sqlite_snapshot(src: Path, dst: Path):
     with closing(sqlite3.connect(uri, uri=True, timeout=30)) as source:
         with closing(sqlite3.connect(dst)) as target:
             source.backup(target)
+            # The source V4 database uses WAL. A portable standalone snapshot
+            # must not depend on its transient -wal/-shm companion files.
+            target.execute('PRAGMA journal_mode=DELETE')
     with closing(sqlite3.connect(dst)) as check:
         if check.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
             raise RuntimeError('Snapshot SQLite không toàn vẹn.')
@@ -108,8 +111,10 @@ def create_backup(project_id: str) -> str:
             revisions = _scene_revisions(staging / 'story.db')
             files = {
                 p.relative_to(staging).as_posix(): _digest(p)
-                for p in staging.rglob('*') if p.is_file()
+                for p in staging.rglob('*')
+                if p.is_file() and _allowed(p.relative_to(staging).as_posix())
             }
+            files.pop('manifest.json', None)
             manifest = {
                 'format': BACKUP_FORMAT,
                 'snapshot_id': name.removesuffix('.zip'),
@@ -127,7 +132,7 @@ def create_backup(project_id: str) -> str:
         temporary_zip = Path(tmp) / 'staged.zip'
         with zipfile.ZipFile(temporary_zip, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(staging.rglob('*')):
-                if path.is_file():
+                if path.is_file() and _allowed(path.relative_to(staging).as_posix()):
                     archive.write(path, path.relative_to(staging).as_posix())
         with zipfile.ZipFile(temporary_zip) as archive:
             if bad := archive.testzip():
