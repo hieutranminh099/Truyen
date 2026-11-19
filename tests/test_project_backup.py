@@ -1,8 +1,12 @@
 """Offline backup/restore acceptance tests: no Ollama, no user data."""
 from __future__ import annotations
 
+import hashlib
 import io
 import json
+import os
+import subprocess
+import sys
 import sqlite3
 import tempfile
 import threading
@@ -132,6 +136,87 @@ class ProjectBackupTests(Base):
         self.assertFalse(list(backup_dir.glob('backup_*.zip')))
         self.assertFalse(list(backup_dir.glob('.backup-staging-*')))
         self.assertTrue(self.backup().is_file())
+
+
+    def test_qa04_truncated_empty_source_fails_closed_without_repairing_bytes(self):
+        """SQLite backup may pad a short source page. Validate the source first."""
+        enable_creative(self.pid)
+        sidecar = project_dir(self.pid) / 'creative-memory.sqlite3'
+        original = sidecar.read_bytes()
+        self.assertGreater(len(original), 4096)
+        self.assertEqual(len(original) % 4096, 0)
+        sidecar.write_bytes(original[:-1])
+        damaged = sidecar.read_bytes()
+        before = hashlib.sha256(damaged).hexdigest()
+        backup_dir = project_dir(self.pid) / 'backups'
+
+        with self.assertRaisesRegex(ValueError, 'cắt giữa trang SQLite'):
+            self.backup()
+
+        self.assertEqual(sidecar.read_bytes(), damaged)
+        self.assertEqual(hashlib.sha256(sidecar.read_bytes()).hexdigest(), before)
+        self.assertFalse(list(backup_dir.glob('backup_*.zip')))
+        self.assertFalse(list(backup_dir.glob('.backup-staging-*')))
+
+    def test_qa04_truncated_populated_source_preserves_existing_backup(self):
+        enable_creative(self.pid)
+        location = project_dir(self.pid)
+        contract = validate_outline(load_outline(location / 'outline.json')).require_contract()
+        store = SQLiteMemoryStore(location, project_id=self.pid, layout_id=contract.layout_id)
+        event = MemoryEvent('qa04', StoryPosition(0), 'canon', 'bell', 'Nguồn đã có dữ kiện')
+        store.commit([MemoryRecord('propose', event.event_id, event)])
+        archive = self.backup()
+        original_backup = archive.read_bytes()
+        sidecar = location / 'creative-memory.sqlite3'
+        valid = sidecar.read_bytes()
+        sidecar.write_bytes(valid[:-1])
+        original_hash = hashlib.sha256(sidecar.read_bytes()).hexdigest()
+
+        with self.assertRaisesRegex(ValueError, 'cắt giữa trang SQLite'):
+            self.backup()
+
+        self.assertEqual(hashlib.sha256(sidecar.read_bytes()).hexdigest(), original_hash)
+        self.assertEqual(archive.read_bytes(), original_backup)
+        self.assertEqual(list(archive.parent.glob('backup_*.zip')), [archive])
+
+    def test_qa05_crashed_child_stage_is_reclaimed_on_next_backup(self):
+        """A hard process exit must not leave public ZIPs or persistent debris."""
+        backups = project_dir(self.pid) / 'backups'
+        backups.mkdir(parents=True, exist_ok=True)
+        child_code = (
+            'import os, pathlib, sqlite3, sys, tempfile; '
+            "p=pathlib.Path(tempfile.mkdtemp(prefix='.backup-staging-',dir=sys.argv[1])); "
+            "c=sqlite3.connect(p/'.backup-active.sqlite3',isolation_level=None); "
+            "c.execute('CREATE TABLE lease (singleton INTEGER PRIMARY KEY)'); "
+            "c.execute('BEGIN IMMEDIATE'); "
+            "(p/'staged.zip').write_bytes(b'PARTIAL ZIP'); "
+            'os._exit(17)'
+        )
+        crashed = subprocess.run([sys.executable, '-c', child_code, str(backups)],
+                                 capture_output=True, timeout=20)
+        self.assertEqual(crashed.returncode, 17, crashed.stderr.decode(errors='replace'))
+        orphaned = list(backups.glob('.backup-staging-*'))
+        self.assertEqual(len(orphaned), 1)
+        self.assertFalse(list(backups.glob('backup_*.zip')))
+        archive = self.backup()
+        self.assertTrue(archive.is_file())
+        self.assertFalse(orphaned[0].exists())
+        self.assertFalse(list(backups.glob('.backup-staging-*')))
+        with zipfile.ZipFile(archive) as z:
+            self.assertIsNone(z.testzip())
+
+    def test_qa05_does_not_delete_a_concurrently_active_stage(self):
+        """Only an unlocked marker may be reclaimed; live backups are untouched."""
+        from novelengine.project_backup import _backup_stage
+        location = project_dir(self.pid)
+        backups = location / 'backups'
+        backups.mkdir(parents=True, exist_ok=True)
+        with _backup_stage(location, backups) as working:
+            (working / 'staged.zip').write_bytes(b'ACTIVE')
+            archive = self.backup()
+            self.assertTrue(archive.exists())
+            self.assertEqual((working / 'staged.zip').read_bytes(), b'ACTIVE')
+        self.assertFalse(working.exists())
 
     def test_project_writer_cannot_commit_between_two_snapshots(self):
         enable_creative(self.pid)
