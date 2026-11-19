@@ -2,6 +2,7 @@
 from __future__ import annotations
 import io
 import json
+import os
 import re
 import secrets
 import sqlite3
@@ -304,23 +305,50 @@ def make_handler(app):
             except Exception as e:self.error_reply(e)
 
         def _backup(self,pid):
-            d=project_dir(pid)
-            stamp=datetime.now().strftime('%Y%m%dT%H%M%S%f')
-            name=f'backup_{stamp}.zip'; path=d/'backups'/name
-            c=story_db(pid)
-            with tempfile.TemporaryDirectory() as temp:
-                snapshot=Path(temp)/'story.db'
-                dest=sqlite3.connect(snapshot)
-                try:c.backup(dest)
-                finally:dest.close();c.close()
-                with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED) as z:
-                    z.write(snapshot,'story.db')
+            d = project_dir(pid)
+            sidecar = d / 'creative-memory.sqlite3'
+
+            def reject_unprotected_creative():
+                # Until two-database snapshots + restore are implemented (Issue #11),
+                # never advertise a ZIP omitting an existing Creative ledger.
+                if os.path.lexists(sidecar):
+                    raise RuntimeError(
+                        'Không thể sao lưu dự án có creative-memory.sqlite3 bằng '
+                        'backup V4 cũ. Cần Backup & Restore Creative hai SQLite.'
+                    )
+
+            reject_unprotected_creative()
+            stamp = datetime.now().strftime('%Y%m%dT%H%M%S%f')
+            name = f'backup_{stamp}.zip'
+            backups = d / 'backups'
+            backups.mkdir(exist_ok=True)
+            target = backups / name
+            # ZIP is private to staging until all files and CRC have passed.
+            # Staging is on the same volume to make the final rename atomic.
+            with tempfile.TemporaryDirectory(prefix='.backup-staging-', dir=backups) as temp:
+                stage = Path(temp)
+                snapshot = stage / 'story.db'
+                c = story_db(pid)
+                dest = sqlite3.connect(snapshot)
+                try:
+                    c.backup(dest)
+                finally:
+                    dest.close()
+                    c.close()
+                zip_path = stage / 'archive.zip'
+                with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+                    archive.write(snapshot, 'story.db')
                     files = [d / name for name in ('outline.json', 'outline_candidate.json', 'voice_bible.md')]
                     files.extend((d / 'exports').glob('chapter_*.md'))
                     for item in files:
                         if (item.is_file() and not item.is_symlink()
                                 and item.resolve().is_relative_to(d.resolve())):
-                            z.write(item, item.relative_to(d).as_posix())
+                            archive.write(item, item.relative_to(d).as_posix())
+                with zipfile.ZipFile(zip_path) as archive:
+                    if damaged := archive.testzip():
+                        raise RuntimeError('Backup ZIP hỏng tại tệp: ' + damaged)
+                reject_unprotected_creative()
+                zip_path.replace(target)
             return name
 
         def gateway(self,data):

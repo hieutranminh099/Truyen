@@ -475,6 +475,40 @@ class HttpTests(Base):
         self.assertTrue(zipfile.is_zipfile(io.BytesIO(content)))
         self.assertNotIn(b'browser_token.txt',content)
 
+    def test_backup_refuses_unprotected_creative_sidecar(self):
+        project = project_dir(self.pid)
+        backups = project / 'backups'
+        code, _, payload = self.req('/api/project/' + self.pid + '/backup', value={})
+        self.assertEqual(code, 200, payload.decode())
+        original = json.loads(payload)['name']
+        original_bytes = (backups / original).read_bytes()
+
+        # Even a zero-byte/invalid sidecar is evidence of Creative state, not
+        # permission to silently make a legacy ZIP without the ledger.
+        sidecar = project / 'creative-memory.sqlite3'
+        sidecar.write_bytes(b'')
+        code, _, payload = self.req('/api/project/' + self.pid + '/backup', value={})
+        self.assertEqual(code, 400)
+        self.assertIn('Creative', payload.decode())
+        self.assertEqual((backups / original).read_bytes(), original_bytes)
+        self.assertEqual([p.name for p in backups.glob('backup_*.zip')], [original])
+
+    def test_backup_mid_write_failure_leaves_no_partial_public_zip(self):
+        from unittest.mock import patch
+        project = project_dir(self.pid)
+        backups = project / 'backups'
+        with patch('novelengine.server.zipfile.ZipFile.write', side_effect=OSError('disk full')):
+            code, _, payload = self.req('/api/project/' + self.pid + '/backup', value={})
+        self.assertEqual(code, 400, payload.decode())
+        self.assertFalse(list(backups.glob('backup_*.zip')))
+        self.assertFalse(list(backups.glob('.backup-staging-*')))
+        code, _, payload = self.req('/api/project/' + self.pid + '/backup', value={})
+        self.assertEqual(code, 200, payload.decode())
+        name = json.loads(payload)['name']
+        with zipfile.ZipFile(backups / name) as archive:
+            self.assertIsNone(archive.testzip())
+            self.assertIn('story.db', archive.namelist())
+
     def test_manual_scene_edit_is_versioned(self):
         chapter=self.outline['chapters'][0]['id']
         scene=self.outline['chapters'][0]['scenes'][0]['id']
