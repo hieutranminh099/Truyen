@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.10', '3.14']
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Kiểm tra cú pháp và điểm vào
+        run: |
+          python -m compileall -q novelengine tests benchmark_models.py migrate_from_v3.py
+          python -m novelengine --help
+          python benchmark_models.py --help
+          python migrate_from_v3.py --help
+          node --check static/app.js
+      - name: Kiểm tra cấu hình khởi tạo
+        env:
+          NOVEL_DATA_DIR: ${{ runner.temp }}/novel-ci
+          NOVEL_HOST: '127.0.0.1'
+          NOVEL_CLOUD_ENABLED: '0'
+        run: python -m novelengine projects
+      - name: Kiểm thử giả lập
+        run: python -m unittest discover -s tests -v

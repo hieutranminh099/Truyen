@@ -154,6 +154,19 @@ Chạy `RUN_TESTS.bat` hoặc:
 python -m unittest discover -s tests -v
 ```
 
+CI chạy trên Ubuntu và Windows với Python 3.10 và 3.14. Để tái hiện kiểm tra cấu hình, đặt `NOVEL_DATA_DIR` thành một thư mục tạm mới, giữ `NOVEL_HOST=127.0.0.1` và `NOVEL_CLOUD_ENABLED=0`, rồi chạy các lệnh sau.
+
+```powershell
+python -m compileall -q novelengine tests benchmark_models.py migrate_from_v3.py
+python -m novelengine --help
+python -m novelengine projects
+python benchmark_models.py --help
+python migrate_from_v3.py --help
+node --check static/app.js
+```
+
+CI dùng FakeAI và các kiểm thử HTTP cục bộ. Nghiệm thu trên Windows với Ollama, RTX 3050 và Android cần thiết bị thật.
+
 Kiểm thử sử dụng **FakeAI** nên chạy được không cần Ollama hoặc API, không chứng minh văn xuôi thực sự hay. Để so sánh hai mô hình cùng scene packet:
 
 ```powershell
