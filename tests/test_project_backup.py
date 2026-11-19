@@ -146,7 +146,7 @@ class ProjectBackupTests(Base):
                 errors.append('backup did not reach first snapshot')
                 return
             with project_write_lock(directory):
-                with story_db(self.pid) as db:
+                with closing(story_db(self.pid)) as db, db:
                     save_scene(db, '001', '01', 'edited', 'Đã thay đổi sau snapshot', commit=False)
                 store = SQLiteMemoryStore(directory, project_id=self.pid, layout_id=contract.layout_id)
                 event = MemoryEvent('later', StoryPosition(0), 'canon', 'clock', 'Chuông mới')
@@ -172,7 +172,7 @@ class ProjectBackupTests(Base):
         self.assertFalse(errors)
         self.assertTrue(committed.is_set())
         target, result = self.restored(archive)
-        with sqlite3.connect(target / 'story.db') as db:
+        with closing(sqlite3.connect(target / 'story.db')) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM scene_versions').fetchone()[0], 0)
         restored = SQLiteMemoryStore(target, project_id=self.pid, layout_id=contract.layout_id)
         self.assertEqual(restored.read().revision, 0)
