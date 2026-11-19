@@ -3,8 +3,9 @@ import json
 import tempfile
 from pathlib import Path
 
-from benchmark_models import CRITERIA, run_benchmark, summarize, write_csv
+# Import the fixture first to set NOVEL_DATA_DIR before benchmark imports the app.
 from test_engine import Base
+from benchmark_models import CRITERIA, run_benchmark, summarize, write_csv
 
 
 class BenchmarkTests(Base):
