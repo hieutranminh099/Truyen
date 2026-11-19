@@ -524,3 +524,37 @@ class PipelineQualityTests(Base):
         self.assertNotIn('SPOILER_CANON_SAU', future_packet)
         self.assertNotIn('SPOILER_CANH_SAU', future_packet)
         self.assertNotIn('TOM_TAT_TUONG_LAI', future_packet)
+
+    def test_regenerated_summary_marks_prior_approved_facts_stale_with_audit(self):
+        """Approved canon must remain reviewable rather than silently revoked."""
+        self.use_single_scene_outline()
+        self.run_scene(FakeAI())
+        with closing(story_db(self.pid)) as db, db:
+            db.execute(
+                "INSERT INTO summaries(chapter,body,status,updated) VALUES(?, 'Cũ', 'stale', ?)",
+                (self.chapter_id, now()),
+            )
+            db.execute(
+                """INSERT INTO memory_items(kind,subject,content,chapter,source,status,created)
+                   VALUES('fact','An','CANON_DA_DUYET',?,'model','approved',?)""",
+                (self.chapter_id, now()),
+            )
+            db.execute(
+                """INSERT INTO memory_items(kind,subject,content,chapter,source,status,created)
+                   VALUES('fact','An','DE_XUAT_CU',?,'model','pending',?)""",
+                (self.chapter_id, now()),
+            )
+        self.assertEqual(summarize_chapter(self.pid, self.chapter, FakeAI()), 'pending')
+        with closing(story_db(self.pid)) as db:
+            rows = {r['content']: (r['id'], r['status']) for r in db.execute(
+                "SELECT id,content,status FROM memory_items WHERE source='model'"
+            )}
+            self.assertEqual(rows['CANON_DA_DUYET'][1], 'stale')
+            self.assertEqual(rows['DE_XUAT_CU'][1], 'revoked')
+            old_id = rows['CANON_DA_DUYET'][0]
+            history = [r['action'] for r in db.execute(
+                "SELECT action FROM memory_audit WHERE item_id=?", (old_id,)
+            )]
+            self.assertIn('stale', history)
+        packet, _ = scene_packet(self.pid, self.outline, self.chapter, self.scene)
+        self.assertNotIn('CANON_DA_DUYET', packet)
