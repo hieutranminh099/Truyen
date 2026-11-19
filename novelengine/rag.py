@@ -22,6 +22,18 @@ class _HTMLText(HTMLParser):
     def text(self): return re.sub(r'\n{3,}','\n\n',''.join(self.buf)).strip()
 
 
+class _MetadataBuilder(ET.TreeBuilder):
+    def doctype(self, name, pubid, system):
+        raise ValueError('Metadata EPUB không được chứa DTD')
+
+
+def _epub_metadata(archive, name):
+    entry = archive.getinfo(name)
+    if entry.file_size > 512_000:
+        raise ValueError('Metadata EPUB vượt 512 kB')
+    return ET.fromstring(archive.read(entry), parser=ET.XMLParser(target=_MetadataBuilder()))
+
+
 def epub_text(raw: bytes):
     if len(raw)>8_000_000: raise ValueError('EPUB lớn hơn 8 MB')
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
@@ -30,14 +42,14 @@ def epub_text(raw: bytes):
         if len(names)>2000: raise ValueError('EPUB chứa quá nhiều tệp')
         content_files=[]
         try:
-            container=ET.fromstring(z.read('META-INF/container.xml'))
+            container=_epub_metadata(z, 'META-INF/container.xml')
             opf_name=next(e.attrib['full-path'] for e in container.iter() if e.tag.endswith('rootfile'))
-            opf=ET.fromstring(z.read(opf_name))
+            opf=_epub_metadata(z, opf_name)
             manifest={e.attrib['id']:e.attrib['href'] for e in opf.iter() if e.tag.endswith('item') and 'id' in e.attrib and 'href' in e.attrib}
             ids=[e.attrib['idref'] for e in opf.iter() if e.tag.endswith('itemref') and 'idref' in e.attrib]
             import posixpath
             content_files=[posixpath.normpath(posixpath.join(posixpath.dirname(opf_name), manifest[i])) for i in ids if i in manifest]
-        except (KeyError,StopIteration,ValueError,ET.ParseError):
+        except (KeyError,StopIteration,ET.ParseError):
             content_files=sorted(n for n in names if n.lower().endswith(('.xhtml','.html','.htm')))
         texts=[]; total=0
         for filename in content_files:
