@@ -44,3 +44,8 @@ jobs:
           python -m novelengine projects
       - name: Kiểm thử giả lập
         run: python -m unittest discover -s tests -v
+      - name: Kiểm thử smoke offline Windows
+        if: runner.os == 'Windows'
+        env:
+          NOVEL_CLOUD_ENABLED: '0'
+        run: python smoke_windows.py
