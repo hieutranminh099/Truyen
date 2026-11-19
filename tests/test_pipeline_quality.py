@@ -12,7 +12,7 @@ from test_engine import Base, FakeAI
 from novelengine.ai import ProviderError
 from novelengine.config import project_dir
 from novelengine.jobs import JobQueue
-from novelengine.pipeline import process_scene, summarize_chapter
+from novelengine.pipeline import process_scene, summarize_chapter, scene_packet
 from novelengine.store import get_scene, now, save_outline, save_scene, story_db
 
 
@@ -461,4 +461,100 @@ class PipelineQualityTests(Base):
         self.assertEqual([stage for _, stage, _ in revised_versions[2:]], ['draft', 'edited'])
         with closing(story_db(self.pid)) as db:
             self.assertEqual(db.execute('SELECT status FROM summaries').fetchone()[0], 'stale')
-            self.assertEqual(db.execute('SELECT status FROM memory_items').fetchone()[0], 'revoked')
+            self.assertEqual(db.execute('SELECT status FROM memory_items').fetchone()[0], 'stale')
+
+    def test_editor_must_keep_required_detail_and_retry_only_editor(self):
+        """Enough words must not bypass an omitted must_include condition."""
+        omitted = prose(250, 'Linh').replace('chuông đồng gỉ', 'tiếng mưa xa')
+        corrected = prose(250, 'Linh')
+        ai = ScriptedAI(critic=[VALID_REVIEW], editor=[omitted, corrected])
+
+        with self.assertRaisesRegex(RuntimeError, 'Editor thiếu chi tiết bắt buộc'):
+            self.run_scene(ai)
+        row, versions = self.scene_state()
+        self.assertEqual(row['stage'], 'review')
+        self.assertEqual(row['edited'], '')
+        self.assertEqual([stage for _, stage, _ in versions], ['draft'])
+        self.assert_unpublished()
+
+        self.run_scene(ai)
+        row, versions = self.scene_state()
+        self.assertEqual(row['edited'], corrected)
+        self.assertEqual([stage for _, stage, _ in versions], ['draft', 'edited'])
+        self.assertEqual(ai.requested_roles(), ['writer', 'critic', 'editor', 'editor'])
+
+    def test_scene_packet_does_not_leak_later_chapters_or_revised_scenes(self):
+        """The Writer never receives future approved memory, summaries or prose."""
+        chapter_one, chapter_two = self.outline['chapters']
+        first = chapter_one['scenes'][0]
+        second = chapter_one['scenes'][1]
+        future = chapter_two['scenes'][0]
+        with closing(story_db(self.pid)) as db, db:
+            save_scene(db, chapter_one['id'], first['id'], 'edited', 'CHUONG_MO_DAU', commit=False)
+            save_scene(db, chapter_two['id'], future['id'], 'edited', 'SPOILER_CANH_SAU', commit=False)
+            db.execute(
+                "INSERT INTO summaries(chapter,body,status,updated) VALUES(?,?,'approved',?)",
+                (chapter_one['id'], 'TOM_TAT_CHUONG_DAU', now()),
+            )
+            db.execute(
+                "INSERT INTO summaries(chapter,body,status,updated) VALUES(?,?,'approved',?)",
+                (chapter_two['id'], 'TOM_TAT_TUONG_LAI', now()),
+            )
+            for chapter, source, marker in [
+                ('', 'manual', 'CANON_NEN_TANG'),
+                (chapter_one['id'], 'model', 'CANON_CHUONG_DAU'),
+                (chapter_two['id'], 'model', 'SPOILER_CANON_SAU'),
+            ]:
+                db.execute(
+                    """INSERT INTO memory_items(kind,subject,content,chapter,source,status,created)
+                       VALUES('fact','An',?,?,?,'approved',?)""",
+                    (marker, chapter, source, now()),
+                )
+        packet, _ = scene_packet(self.pid, self.outline, chapter_one, second)
+        self.assertIn('CHUONG_MO_DAU', packet)
+        self.assertIn('CANON_NEN_TANG', packet)
+        for secret in ('SPOILER_CANH_SAU', 'SPOILER_CANON_SAU', 'TOM_TAT_TUONG_LAI',
+                       'CANON_CHUONG_DAU', 'TOM_TAT_CHUONG_DAU'):
+            self.assertNotIn(secret, packet)
+        self.assertNotIn('từng tham gia một nghi lễ đã quên', packet)
+
+        future_packet, _ = scene_packet(self.pid, self.outline, chapter_two, future)
+        self.assertIn('CANON_CHUONG_DAU', future_packet)
+        self.assertIn('TOM_TAT_CHUONG_DAU', future_packet)
+        self.assertNotIn('SPOILER_CANON_SAU', future_packet)
+        self.assertNotIn('SPOILER_CANH_SAU', future_packet)
+        self.assertNotIn('TOM_TAT_TUONG_LAI', future_packet)
+
+    def test_regenerated_summary_marks_prior_approved_facts_stale_with_audit(self):
+        """Approved canon must remain reviewable rather than silently revoked."""
+        self.use_single_scene_outline()
+        self.run_scene(FakeAI())
+        with closing(story_db(self.pid)) as db, db:
+            db.execute(
+                "INSERT INTO summaries(chapter,body,status,updated) VALUES(?, 'Cũ', 'stale', ?)",
+                (self.chapter_id, now()),
+            )
+            db.execute(
+                """INSERT INTO memory_items(kind,subject,content,chapter,source,status,created)
+                   VALUES('fact','An','CANON_DA_DUYET',?,'model','approved',?)""",
+                (self.chapter_id, now()),
+            )
+            db.execute(
+                """INSERT INTO memory_items(kind,subject,content,chapter,source,status,created)
+                   VALUES('fact','An','DE_XUAT_CU',?,'model','pending',?)""",
+                (self.chapter_id, now()),
+            )
+        self.assertEqual(summarize_chapter(self.pid, self.chapter, FakeAI()), 'pending')
+        with closing(story_db(self.pid)) as db:
+            rows = {r['content']: (r['id'], r['status']) for r in db.execute(
+                "SELECT id,content,status FROM memory_items WHERE source='model'"
+            )}
+            self.assertEqual(rows['CANON_DA_DUYET'][1], 'stale')
+            self.assertEqual(rows['DE_XUAT_CU'][1], 'revoked')
+            old_id = rows['CANON_DA_DUYET'][0]
+            history = [r['action'] for r in db.execute(
+                "SELECT action FROM memory_audit WHERE item_id=?", (old_id,)
+            )]
+            self.assertIn('stale', history)
+        packet, _ = scene_packet(self.pid, self.outline, self.chapter, self.scene)
+        self.assertNotIn('CANON_DA_DUYET', packet)

@@ -34,7 +34,9 @@ class FakeAI:
         if role=='summary':return json.dumps({'summary':'An trở về thị trấn và nghe tiếng chuông.',
                   'proposals':[{'kind':'fact','subject':'An','content':'An nghe tiếng chuông gỉ bên bến đò.'}]},ensure_ascii=False)
         if role=='critic':return json.dumps({'critical':[],'style':[],'missing':[],'strengths':['nhịp đều'],'fixes':[]},ensure_ascii=False)
-        if role=='editor':return 'Cô nắm chiếc chuông đồng gỉ, lặng lẽ bước qua bến đò. '*40
+        if role=='editor':
+            required = 'mẩu giấy không có tên' if 'mẩu giấy không có tên' in user else 'chuông đồng gỉ'
+            return f'Cô nắm {required}, lặng lẽ bước qua bến đò. '*40
         if role=='roleplay':return 'Tôi sẽ không tiết lộ bí mật khi chưa có lý do.'
         return 'An nghe tiếng chuông đồng gỉ từ phía bến đò. '*50
     def embed(self,text):return [0.3,0.5,0.7]
@@ -74,7 +76,7 @@ class OutlineAndStoreTests(Base):
         restore_version(self.pid,versions[0]['id'])
         c=story_db(self.pid)
         self.assertEqual(c.execute('SELECT status FROM summaries WHERE chapter="001"').fetchone()[0],'stale')
-        self.assertEqual(c.execute('SELECT status FROM memory_items').fetchone()[0],'revoked')
+        self.assertEqual(c.execute('SELECT status FROM memory_items').fetchone()[0],'stale')
         self.assertEqual(c.execute('SELECT COUNT(*) FROM scene_versions').fetchone()[0],3)
         c.close()
 
@@ -299,7 +301,7 @@ class JobTests(Base):
                 c.close()
             self.assertEqual(exported.read_bytes(), original_export)
 
-            new_prose = 'An rời bến đò khi trời vừa hửng sáng. ' * 50
+            new_prose = 'An mang chuông đồng gỉ rời bến đò khi trời vừa hửng sáng. ' * 50
             self.ai.chat = lambda system, user, **opts: (
                 new_prose if opts['role'] == 'editor' else original_chat(system, user, **opts)
             )
@@ -309,7 +311,7 @@ class JobTests(Base):
             try:
                 self.assertEqual(get_scene(c, chapter_id, scene_id)['edited'], new_prose)
                 self.assertEqual(c.execute('SELECT status FROM summaries').fetchone()[0], 'stale')
-                self.assertEqual(c.execute('SELECT status FROM memory_items').fetchone()[0], 'revoked')
+                self.assertEqual(c.execute('SELECT status FROM memory_items').fetchone()[0], 'stale')
                 self.assertEqual(c.execute('SELECT COUNT(*) FROM scene_versions').fetchone()[0], 4)
             finally:
                 c.close()
@@ -331,7 +333,7 @@ class JobTests(Base):
                 entered.set()
                 if not release.wait(3):
                     raise TimeoutError('Test worker did not receive release')
-                return 'Bản viết lại trong lần thử hủy. ' * 80
+                return 'Bản viết lại có chuông đồng gỉ trong lần thử hủy. ' * 80
             return original_chat(system, user, **options)
 
         self.ai.chat = slow_chat
