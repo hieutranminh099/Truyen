@@ -35,6 +35,12 @@ Ví dụ, cảnh mục tiêu 250 từ mà Editor chỉ trả 179 hoặc 164 từ
 - Viết lại một cảnh chỉ thay thế bản cũ trong giao dịch lưu bản mới hợp lệ. Nếu Writer, Critic hoặc Editor thất bại trong lượt viết lại, dữ liệu cảnh, lịch sử phiên bản và canon đã duyệt của bản trước vẫn dùng được. Khi tiếp tục tác vụ viết lại bị lỗi, hệ thống chạy lại từ Writer.
 - Cảnh vốn đã ở trạng thái `edited`, kể cả cảnh sửa tay, được giữ theo quy trình hiện có. Bản mới dùng các cột SQLite và trạng thái hàng đợi hiện có.
 
+## Tóm tắt chương
+
+Summary phải trả một object JSON với hai trường bắt buộc. `summary` là chuỗi có nội dung. `proposals` là mảng có thể để trống và chứa tối đa 12 đề xuất. Mỗi đề xuất là object có `kind` thuộc nhóm `fact`, `timeline`, `character`, `knowledge`, `thread`, cùng `subject` và `content` là chuỗi có nội dung. Có thể gửi JSON thô hoặc một khối mã JSON hoàn chỉnh.
+
+Pipeline kiểm tra toàn bộ phản hồi trước giao dịch ghi tóm tắt. Lỗi định dạng hoặc sai schema đưa tác vụ về `failed` và giữ nguyên các cảnh, tệp Markdown, tóm tắt cũ và canon đã lưu. **Tiếp tục** tạo lại Summary cho chương từ các cảnh đã hoàn tất. Tóm tắt và đề xuất hợp lệ mới được ghi `pending` để chờ người dùng duyệt.
+
 ## Chi phí chạy và nghiệm thu
 
 Đường chạy thông thường gồm một lượt Writer, một lượt Critic và một lượt Editor. Lượt Critic thứ hai chỉ phát sinh khi phản hồi đầu thiếu hoặc sai định dạng. Bản nháp ngắn tận dụng lượt Editor sẵn có. Mỗi lần người dùng tiếp tục sau lỗi là một lần chạy mới có giới hạn tương tự.
@@ -48,4 +54,4 @@ python -m unittest discover -s tests -v
 
 Các kiểm thử dùng phản hồi giả lập. Cần đo lại số lần thử, thời gian và độ dài đầu ra với Ollama/Qwen3 8B trên RTX 3050 6 GB. Kết quả nghiệm thu Windows trước đó mô tả lỗi ở bản cũ. Chất lượng hành văn, tên riêng, lựa chọn từ ngữ và sự lặp hình ảnh cần đánh giá riêng.
 
-Khi tích hợp với PR #3, cập nhật dữ liệu giả lập trong `smoke_windows.py`. Fixture Critic hiện chỉ có hai trong năm trường. Bản Editor giả lập dài khoảng 132 từ với mục tiêu mẫu 350 từ, tương ứng ngưỡng tối thiểu 280 từ. Fixture cần trả đủ năm mảng và đầu ra đạt ngưỡng để kiểm tra luồng thành công.
+PR #3 cập nhật fixture smoke trên nhánh hiện có để trả đủ năm trường Critic, cung cấp một phản hồi Summary riêng và tạo bản Editor đạt ít nhất 280 từ với mục tiêu 350. Chạy `python smoke_windows.py` trên bản ghép để kiểm tra HTTP 503, tiếp tục tác vụ, SQLite và Markdown.

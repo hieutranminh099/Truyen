@@ -10,7 +10,6 @@ from .config import project_dir
 from .store import (story_db, get_scene, save_scene, now, export_chapter,
                     scene_revision, invalidate_chapter_memory)
 from .rag import find_techniques
-from .ai import json_from_text
 
 SYSTEM_WRITER = '''Bạn là nhà văn tiểu thuyết tiếng Việt chuyên nghiệp.
 CHỈ xuất văn xuôi của cảnh, không đưa nhan đề, dàn ý, lời giải thích hay nhận xét về việc viết.
@@ -34,8 +33,9 @@ Không tự thêm nút thắt quan trọng. Nhận xét biên tập có thể kh
 
 SYSTEM_SUMMARY = '''Bạn là thư ký theo dõi diễn biến tiểu thuyết. Dựa DUY NHẤT vào cảnh đã viết.
 Trả JSON object: {"summary":"...","proposals":[{"kind":"fact|timeline|character|knowledge|thread", "subject":"...", "content":"..."}]}.
-Đưa ra tối đa 12 đề xuất có thể kiểm chứng; không suy đoán hay khẳng định bí mật chưa lộ.
-Mỗi proposed item phải có dấu vết trong văn bản. Không tự duyệt canon.'''
+Cả hai trường đều bắt buộc. summary là chuỗi có nội dung, proposals là mảng có tối đa 12 đề xuất.
+Dùng proposals: [] nếu không có đề xuất. Mỗi đề xuất cần kind đúng loại, subject chỉ chủ thể và content có nội dung.
+Mỗi đề xuất phải có dấu vết trong văn bản. Không suy đoán, khẳng định bí mật chưa lộ hoặc tự duyệt canon.'''
 
 
 def short(s,maxlen=4500):
@@ -86,6 +86,8 @@ def scene_packet(project_id,outline,ch,sc,ai=None,use_embeddings=False, *, rewri
 
 
 CRITIC_FIELDS = ('critical', 'style', 'missing', 'strengths', 'fixes')
+SUMMARY_KINDS = ('fact', 'timeline', 'character', 'knowledge', 'thread')
+JSON_FENCE = re.compile(r'```(?:json)?\s*(.*?)\s*```', flags=re.I | re.S)
 DEFAULT_SCENE_MIN_RATIO = Decimal('0.80')
 EDITOR_MIN_RETENTION = Decimal('0.45')
 WORD_CONTENT = re.compile(r'[^\W_]')
@@ -128,7 +130,7 @@ def parse_critic_review(raw):
     if not isinstance(raw, str):
         raise CriticResponseError('JSON Critic không hợp lệ')
     text = raw.strip()
-    fenced = re.fullmatch(r'```(?:json)?\s*(.*?)\s*```', text, flags=re.I | re.S)
+    fenced = JSON_FENCE.fullmatch(text)
     if fenced:
         text = fenced[1]
     elif text.startswith('```') and not text.endswith('```'):
@@ -268,6 +270,42 @@ def process_scene(project_id,outline,ch,sc,ai,cloud_critic=False,use_embeddings=
     return {'skipped': False, 'words': edited_words, 'techniques': len(tips), 'quality': quality}
 
 
+def _parse_chapter_summary(raw):
+    if not isinstance(raw, str):
+        raise ValueError('cần phản hồi JSON dạng văn bản')
+    text = raw.strip()
+    fenced = JSON_FENCE.fullmatch(text)
+    try:
+        result = json.loads(fenced[1] if fenced else text)
+    except json.JSONDecodeError:
+        raise ValueError('JSON sai cú pháp hoặc chưa hoàn chỉnh') from None
+    if not isinstance(result, dict):
+        raise ValueError('cần một object JSON')
+
+    summary = result.get('summary')
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError('summary phải là chuỗi có nội dung')
+    proposals = result.get('proposals')
+    if not isinstance(proposals, list) or len(proposals) > 12:
+        raise ValueError('proposals phải là mảng có tối đa 12 đề xuất')
+
+    validated = []
+    for index, item in enumerate(proposals):
+        if not isinstance(item, dict):
+            raise ValueError(f'proposals[{index}] phải là object')
+        kind = item.get('kind')
+        subject = item.get('subject')
+        content = item.get('content')
+        if not isinstance(kind, str) or kind not in SUMMARY_KINDS:
+            raise ValueError(f'proposals[{index}].kind không hợp lệ')
+        if not isinstance(subject, str) or not subject.strip():
+            raise ValueError(f'proposals[{index}].subject phải là chuỗi có nội dung')
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(f'proposals[{index}].content phải là chuỗi có nội dung')
+        validated.append((kind, subject.strip()[:120], content.strip()[:900]))
+    return short(summary.strip(), 4000), validated
+
+
 def summarize_chapter(project_id,ch,ai):
     c=story_db(project_id)
     chapter_id = str(ch['id'])
@@ -287,10 +325,10 @@ def summarize_chapter(project_id,ch,ai):
     text='\n\n'.join(scenes)
     raw=ai.chat(SYSTEM_SUMMARY,'CHƯƠNG: '+ch['title']+'\nBẢN THẢO ĐÃ VIẾT:\n'+short(text,11000),
                 role='summary',temperature=.22,max_tokens=950,structured=True)
-    try: obj=json_from_text(raw)
-    except ValueError: obj={'summary':short(raw,1800),'proposals':[]}
-    summary=short(str(obj.get('summary','')).strip() or 'Chưa tạo được bản tóm tắt.',4000)
-    proposals=obj.get('proposals',[])
+    try:
+        summary, proposals = _parse_chapter_summary(raw)
+    except ValueError as exc:
+        raise RuntimeError(f'Summary không hợp lệ: {exc}. Hãy tiếp tục tác vụ để tạo lại tóm tắt.') from None
     c=story_db(project_id)
     try:
         c.execute('BEGIN IMMEDIATE')
@@ -301,16 +339,12 @@ def summarize_chapter(project_id,ch,ai):
                   (str(ch['id']),summary,'pending',now()))
         # Old machine proposals from regenerated chapter are superseded, never silently kept canon.
         c.execute("UPDATE memory_items SET status='revoked' WHERE chapter=? AND source='model' AND status!='revoked'",(str(ch['id']),))
-        for p in (proposals if isinstance(proposals,list) else [])[:12]:
-            if not isinstance(p,dict):continue
-            kind=str(p.get('kind',''))
-            if kind not in ('fact','timeline','character','knowledge','thread'):continue
-            content=str(p.get('content','')).strip()[:900]
-            subject=str(p.get('subject','')).strip()[:120]
-            if content:
-                c.execute('''INSERT INTO memory_items(kind,subject,content,chapter,source,status,visibility,created)
-                             VALUES(?,?,?,?,?,'pending',?,?)''',(kind,subject,content,str(ch['id']),'model',
-                                   'private' if kind=='knowledge' else 'public',now()))
+        for kind, subject, content in proposals:
+            c.execute(
+                """INSERT INTO memory_items(kind,subject,content,chapter,source,status,visibility,created)
+                   VALUES(?,?,?,?,?,'pending',?,?)""",
+                (kind, subject, content, chapter_id, 'model', 'private' if kind == 'knowledge' else 'public', now()),
+            )
         c.commit()
         return 'pending'
     finally:c.close()

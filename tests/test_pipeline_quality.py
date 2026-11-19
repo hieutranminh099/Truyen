@@ -12,7 +12,7 @@ from test_engine import Base, FakeAI
 from novelengine.ai import ProviderError
 from novelengine.config import project_dir
 from novelengine.jobs import JobQueue
-from novelengine.pipeline import process_scene
+from novelengine.pipeline import process_scene, summarize_chapter
 from novelengine.store import get_scene, now, save_outline, save_scene, story_db
 
 
@@ -297,6 +297,85 @@ class PipelineQualityTests(Base):
             self.assertEqual(len(updated_versions), 2)
             with closing(story_db(self.pid)) as db:
                 self.assertEqual(db.execute('SELECT status FROM summaries').fetchone()[0], 'pending')
+        finally:
+            queue.shutdown()
+
+    def test_invalid_summary_leaves_existing_scene_summary_and_canon_intact(self):
+        self.use_single_scene_outline()
+        self.run_scene(FakeAI())
+        saved_scene = self.scene_state()
+        markdown = self.markdown_path().read_bytes()
+        with closing(story_db(self.pid)) as db, db:
+            db.execute("INSERT INTO summaries VALUES(?, 'Tóm tắt cũ', 'stale', ?)",
+                       (self.chapter_id, now()))
+            db.execute(
+                "INSERT INTO memory_items(kind, subject, content, chapter, source, status, created) "
+                "VALUES('fact', 'An', 'Canon cũ', ?, 'model', 'approved', ?)",
+                (self.chapter_id, now()),
+            )
+
+        def content():
+            with closing(story_db(self.pid)) as db:
+                return ([tuple(row) for row in db.execute('SELECT * FROM summaries')],
+                        [tuple(row) for row in db.execute('SELECT * FROM memory_items')])
+
+        saved_content = content()
+        usable = {'kind': 'fact', 'subject': 'An', 'content': 'An nghe tiếng chuông.'}
+        invalid_responses = [
+            '[]', '{}', 'null', '42', '"văn bản"', '{"summary": "bị cắt',
+            'Giải thích ngoài JSON {"summary":"Chương hợp lệ","proposals":[]}',
+            json.dumps({'summary': '', 'proposals': []}),
+            json.dumps({'summary': '  \n ', 'proposals': []}),
+            json.dumps({'summary': 10, 'proposals': []}),
+            json.dumps({'summary': 'Có nội dung'}),
+            json.dumps({'summary': 'Có nội dung', 'proposals': {}}),
+            json.dumps({'summary': 'Có nội dung', 'proposals': [usable] * 13}),
+        ]
+        for invalid in (None, 'văn bản', {}, dict(usable, kind=[]), dict(usable, kind='invalid'),
+                        dict(usable, subject=123), dict(usable, subject='   '),
+                        dict(usable, content=[]), dict(usable, content='  ')):
+            invalid_responses.append(json.dumps({'summary': 'Có nội dung', 'proposals': [usable, invalid]}))
+
+        for raw in invalid_responses:
+            with self.subTest(raw=raw):
+                ai = ScriptedAI(summary=[raw])
+                with self.assertRaisesRegex(RuntimeError, 'Summary không hợp lệ.*tạo lại tóm tắt'):
+                    summarize_chapter(self.pid, self.chapter, ai)
+                self.assertEqual(ai.requested_roles(), ['summary'])
+                self.assertEqual(content(), saved_content)
+                self.assertEqual(self.scene_state(), saved_scene)
+                self.assertEqual(self.markdown_path().read_bytes(), markdown)
+
+    def test_summary_failure_then_resume_only_runs_summary_again(self):
+        self.use_single_scene_outline()
+        ai = ScriptedAI(critic=[VALID_REVIEW], summary=[
+            '{"summary": "Chương trước", "proposals": null}',
+            '```json\n{"summary": "An nghe tiếng chuông.", "proposals":[]}\n```',
+        ])
+        queue = JobQueue(ai, poll=.03)
+        job_id = queue.submit(self.pid, 'series')
+        queue.start()
+        try:
+            failed = self.wait_for_job(queue, job_id, 'failed')
+            self.assertIn('Summary không hợp lệ', failed['error'])
+            self.assertEqual(ai.requested_roles(), ['writer', 'critic', 'editor', 'summary'])
+            before = self.scene_state()
+            self.assertEqual(before[0]['stage'], 'edited')
+            self.assertEqual(len(before[1]), 2)
+            markdown = self.markdown_path().read_bytes()
+            with closing(story_db(self.pid)) as db:
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM summaries').fetchone()[0], 0)
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM memory_items').fetchone()[0], 0)
+
+            queue.command(job_id, 'resume')
+            self.wait_for_job(queue, job_id, 'waiting_approval')
+            self.assertEqual(ai.requested_roles(), ['writer', 'critic', 'editor', 'summary', 'summary'])
+            self.assertEqual(self.scene_state(), before)
+            self.assertEqual(self.markdown_path().read_bytes(), markdown)
+            with closing(story_db(self.pid)) as db:
+                summary = db.execute('SELECT body,status FROM summaries').fetchone()
+                self.assertEqual(tuple(summary), ('An nghe tiếng chuông.', 'pending'))
+                self.assertEqual(db.execute('SELECT COUNT(*) FROM memory_items').fetchone()[0], 0)
         finally:
             queue.shutdown()
 
