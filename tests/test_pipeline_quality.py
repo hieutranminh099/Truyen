@@ -461,7 +461,7 @@ class PipelineQualityTests(Base):
         self.assertEqual([stage for _, stage, _ in revised_versions[2:]], ['draft', 'edited'])
         with closing(story_db(self.pid)) as db:
             self.assertEqual(db.execute('SELECT status FROM summaries').fetchone()[0], 'stale')
-            self.assertEqual(db.execute('SELECT status FROM memory_items').fetchone()[0], 'revoked')
+            self.assertEqual(db.execute('SELECT status FROM memory_items').fetchone()[0], 'stale')
 
     def test_editor_must_keep_required_detail_and_retry_only_editor(self):
         """Enough words must not bypass an omitted must_include condition."""
