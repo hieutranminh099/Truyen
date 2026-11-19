@@ -450,6 +450,15 @@ class HttpTests(Base):
         s,_,_=self.req('/api/project/../memory');self.assertNotEqual(s,200)
         s,_,_=self.req('/api/project/'+self.pid+'/outline');self.assertEqual(s,200)
 
+    def test_post_requires_matching_origin_when_present(self):
+        from urllib.parse import urlsplit
+        route = '/api/projects'
+        payload = {'id': 'origin-test', 'title': 'Origin test'}
+        code, _, _ = self.req(route, payload, headers={'Origin': 'https://example.invalid'})
+        self.assertEqual(code, 403)
+        code, _, _ = self.req(route, payload, headers={'Origin': 'https://' + urlsplit(self.base).netloc})
+        self.assertEqual(code, 201)
+
     def test_upload_and_backup(self):
         import urllib.parse
         path='/api/project/'+self.pid+'/upload?'+urllib.parse.urlencode({'name':'a.txt','license':'Tôi viết','rights':'yes'})

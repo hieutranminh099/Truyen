@@ -30,17 +30,22 @@ def json_from_text(raw: str):
         raise ValueError('AI không trả JSON hợp lệ')
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 def http_json(url, payload, headers=None, timeout=600):
     body = json.dumps(payload, ensure_ascii=False).encode('utf8')
     req = urllib.request.Request(url, body, headers={'Content-Type':'application/json', **(headers or {})}, method='POST')
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.build_opener(_NoRedirect()).open(req, timeout=timeout) as response:
             return json.load(response)
     except urllib.error.HTTPError as e:
-        msg = e.read(1500).decode('utf8','replace')
-        raise ProviderError(f'HTTP {e.code} tại nhà cung cấp: {msg[:500]}') from e
-    except (urllib.error.URLError, socket.timeout, TimeoutError, OSError, ValueError) as e:
-        raise ProviderError(f'Không thể kết nối AI: {str(e)[:350]}') from e
+        e.close()
+        raise ProviderError(f'HTTP {e.code} tại nhà cung cấp') from None
+    except (urllib.error.URLError, socket.timeout, TimeoutError, OSError, ValueError):
+        raise ProviderError('Không thể kết nối AI hoặc phản hồi không hợp lệ') from None
 
 
 class AI:

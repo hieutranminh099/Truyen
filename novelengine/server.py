@@ -36,6 +36,7 @@ class NovelApp:
 def make_handler(app):
     class Handler(BaseHTTPRequestHandler):
         server_version='NovelEngine/4'
+        timeout = 15
         def log_message(self,fmt,*args):
             # Keep tokens, payloads, draft text out of the access log.
             return
@@ -66,12 +67,12 @@ def make_handler(app):
 
         def browse_auth(self):
             supplied=self.headers.get('X-Novel-Token','')
-            return bool(supplied) and secrets.compare_digest(supplied,app.settings.browser_token)
+            return bool(supplied) and secrets.compare_digest(supplied.encode('utf-8'),app.settings.browser_token.encode('utf-8'))
 
         def gateway_auth(self):
             supplied=self.headers.get('Authorization','')
             if not supplied.lower().startswith('bearer '):return False
-            return secrets.compare_digest(supplied[7:].strip(),app.settings.gateway_token)
+            return secrets.compare_digest(supplied[7:].strip().encode('utf-8'),app.settings.gateway_token.encode('utf-8'))
 
         def _route(self):
             parts=urllib.parse.urlsplit(self.path)
@@ -164,22 +165,40 @@ def make_handler(app):
                 return self.reply({'error':'Không có endpoint này'},404)
             except Exception as e:self.error_reply(e)
 
+        def read_body(self, limit):
+            lengths = self.headers.get_all('Content-Length', [])
+            if self.headers.get('Transfer-Encoding') or len(lengths) != 1:
+                raise ValueError('Yêu cầu phải khai báo một Content-Length')
+            if not re.fullmatch(r'[0-9]{1,10}', lengths[0]):
+                raise ValueError('Content-Length không hợp lệ')
+            length = int(lengths[0])
+            if not 0 < length <= limit:
+                raise ValueError('Nội dung trống hoặc vượt giới hạn')
+            data = self.rfile.read(length)
+            if len(data) != length:
+                raise ValueError('Yêu cầu chưa gửi đủ nội dung')
+            return data
+
         def read_json(self):
-            try:n=int(self.headers.get('Content-Length','0'))
-            except ValueError:raise ValueError('Content-Length không hợp lệ')
-            if not 0<n<=MAX_JSON_BYTES:raise ValueError('JSON trống hoặc quá 2 MB')
-            obj=json.loads(self.rfile.read(n))
-            if not isinstance(obj,dict):raise ValueError('Yêu cầu phải là JSON object')
+            obj = json.loads(self.read_body(MAX_JSON_BYTES))
+            if not isinstance(obj, dict):
+                raise ValueError('Yêu cầu phải là JSON object')
             return obj
 
-        def read_upload(self):
-            try:n=int(self.headers.get('Content-Length','0'))
-            except ValueError:raise ValueError('Content-Length không hợp lệ')
-            if not 0<n<=MAX_UPLOAD_BYTES:raise ValueError('Tệp quá 8 MB hoặc trống')
-            return self.rfile.read(n)
+        def check_write_origin(self):
+            origin = self.headers.get('Origin')
+            if origin is None:  # CLI and native gateway clients.
+                return
+            parts = urllib.parse.urlsplit(origin)
+            host = self.headers.get('Host', '')
+            if (parts.scheme not in {'http', 'https'} or not host
+                    or parts.netloc.lower() != host.lower() or parts.path
+                    or parts.query or parts.fragment):
+                raise PermissionError('Origin không khớp máy chủ')
 
         def do_POST(self):
             try:
+                self.check_write_origin()
                 p,q=self._route()
                 if p=='/v1/chat/completions':
                     if not self.gateway_auth():return self.reply({'error':'Gateway API key không hợp lệ'},401)
@@ -198,7 +217,7 @@ def make_handler(app):
                 if action=='upload':
                     name=q.get('name',[''])[0]; license_note=q.get('license',[''])[0]
                     confirmed=q.get('rights',[''])[0]=='yes'
-                    return self.reply(import_document(pid,name,self.read_upload(),license_note,confirmed),201)
+                    return self.reply(import_document(pid,name,self.read_body(MAX_UPLOAD_BYTES),license_note,confirmed),201)
                 data=self.read_json()
                 if action=='outline':
                     obj=parse_outline(data.get('value',{}))
@@ -296,9 +315,12 @@ def make_handler(app):
                 finally:dest.close();c.close()
                 with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED) as z:
                     z.write(snapshot,'story.db')
-                    for item in d.rglob('*'):
-                        if item.is_file() and 'backups' not in item.relative_to(d).parts and item.name!='story.db' and not item.name.endswith(('-wal','-shm')):
-                            z.write(item,item.relative_to(d).as_posix())
+                    files = [d / name for name in ('outline.json', 'outline_candidate.json', 'voice_bible.md')]
+                    files.extend((d / 'exports').glob('chapter_*.md'))
+                    for item in files:
+                        if (item.is_file() and not item.is_symlink()
+                                and item.resolve().is_relative_to(d.resolve())):
+                            z.write(item, item.relative_to(d).as_posix())
             return name
 
         def gateway(self,data):

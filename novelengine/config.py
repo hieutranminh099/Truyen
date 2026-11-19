@@ -4,6 +4,7 @@ import os
 import re
 import secrets
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_ROOT = Path(os.environ.get('NOVEL_DATA_DIR', str(ROOT / 'data'))).expanduser().resolve()
@@ -56,6 +57,18 @@ def env_bool(key: str, default: bool = False) -> bool:
     return default if v is None else v.lower() in ('1', 'true', 'yes', 'on')
 
 
+def validate_provider_url(value, *, cloud=False):
+    parts = urlsplit(value)
+    port = parts.port  # Reject malformed and out-of-range ports.
+    loopback = parts.hostname in {'127.0.0.1', 'localhost', '::1'}
+    if (parts.scheme not in {'http', 'https'} or not parts.hostname or port == 0
+            or parts.username is not None or parts.password is not None
+            or parts.query or parts.fragment):
+        raise ValueError('URL nhà cung cấp không hợp lệ')
+    if cloud and parts.scheme != 'https' and not loopback:
+        raise ValueError('Cloud API phải dùng HTTPS, ngoại trừ proxy loopback')
+
+
 class Settings:
     def __init__(self):
         self.host = os.environ.get('NOVEL_HOST', '127.0.0.1')
@@ -70,16 +83,19 @@ class Settings:
         self.cloud_model = os.environ.get('NOVEL_CLOUD_MODEL', '')
         self.cloud_key = os.environ.get('NOVEL_CLOUD_API_KEY', '')
         self.cloud_timeout = int(os.environ.get('NOVEL_CLOUD_TIMEOUT', '180'))
-        self.browser_token = secret('browser_token.txt')
-        self.gateway_token = secret('gateway_token.txt')
         if self.host not in ('127.0.0.1', '::1', 'localhost'):
             if not env_bool('NOVEL_ALLOW_LAN'):
                 raise RuntimeError('Không cho phép bind mạng ngoài localhost. Cần NOVEL_ALLOW_LAN=1 nếu thực sự chủ động mở LAN.')
+        if not 1 <= self.port <= 65535 or self.cloud_timeout < 1:
+            raise ValueError('Cổng hoặc thời gian chờ không hợp lệ')
+        validate_provider_url(self.ollama_url)
         if self.cloud_enabled:
-            if not self.cloud_url.startswith('https://') and not self.cloud_url.startswith('http://127.0.0.1'):
-                raise RuntimeError('Cloud API phải dùng HTTPS (trừ local proxy 127.0.0.1)')
+            validate_provider_url(self.cloud_url, cloud=True)
             if not self.cloud_model or not self.cloud_key:
                 raise RuntimeError('Cloud API thiếu NOVEL_CLOUD_MODEL hoặc NOVEL_CLOUD_API_KEY')
+
+        self.browser_token = secret('browser_token.txt')
+        self.gateway_token = secret('gateway_token.txt')
 
     def info(self) -> dict:
         return {'model': self.model, 'embed_model': self.embed_model,
