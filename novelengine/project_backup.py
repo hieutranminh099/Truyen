@@ -157,7 +157,7 @@ def _check_archive(archive: zipfile.ZipFile) -> list:
     for item in entries:
         if (not _allowed(item.filename) or item.is_dir() or item.filename.startswith('/')
                 or '\\' in item.filename or item.flag_bits & 0x1):
-            raise ValueError('ZIP chứa đường dẫn hoặc loại tệp không được phép.')
+            raise ValueError('ZIP chứa đường dẫn hoặc loại tệp không được phép: ' + repr(item.filename))
         mode = item.external_attr >> 16
         if (mode & 0o170000) == 0o120000:
             raise ValueError('ZIP chứa symlink.')
