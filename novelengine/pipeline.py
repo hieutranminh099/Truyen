@@ -1,13 +1,15 @@
 """Deterministic scene pipeline: outline -> RAG/canon -> draft -> critique -> edit -> proposed memory."""
 from __future__ import annotations
 import json
+import os
 import re
-from .outline import load_outline, parse_outline
+from decimal import Decimal, InvalidOperation
+from math import ceil
+from .outline import load_outline
 from .config import project_dir
 from .store import (story_db, get_scene, save_scene, now, export_chapter,
                     scene_revision, invalidate_chapter_memory)
 from .rag import find_techniques
-from .ai import json_from_text
 
 SYSTEM_WRITER = '''Bạn là nhà văn tiểu thuyết tiếng Việt chuyên nghiệp.
 CHỈ xuất văn xuôi của cảnh, không đưa nhan đề, dàn ý, lời giải thích hay nhận xét về việc viết.
@@ -20,7 +22,8 @@ Có quyền sáng tạo vi mô nhưng không được tự thêm biến cố là
 
 SYSTEM_CRITIC = '''Bạn là biên tập viên truyện tiếng Việt. Đối chiếu cảnh với dàn ý, canon và điểm nhìn.
 Trả đúng JSON object: {"critical":[],"style":[],"missing":[],"strengths":[],"fixes":[]}.
-Mỗi lỗi phải cụ thể và có bằng chứng ngắn từ BẢN NHÁP; không tự bịa sự kiện canon.
+Cả năm trường đều bắt buộc và chỉ chứa chuỗi. Mỗi trường dùng tối đa hai chuỗi ngắn; dùng [] khi không có mục.
+Mỗi lỗi cần bằng chứng ngắn từ BẢN NHÁP; không tự bịa sự kiện canon.
 Phân biệt nghi ngờ với vi phạm chắc chắn. Không đưa đoạn viết lại.'''
 
 SYSTEM_EDITOR = '''Bạn là biên tập viên văn học tinh tế. Chỉ xuất VĂN XUÔI ĐÃ BIÊN TẬP.
@@ -30,8 +33,9 @@ Không tự thêm nút thắt quan trọng. Nhận xét biên tập có thể kh
 
 SYSTEM_SUMMARY = '''Bạn là thư ký theo dõi diễn biến tiểu thuyết. Dựa DUY NHẤT vào cảnh đã viết.
 Trả JSON object: {"summary":"...","proposals":[{"kind":"fact|timeline|character|knowledge|thread", "subject":"...", "content":"..."}]}.
-Đưa ra tối đa 12 đề xuất có thể kiểm chứng; không suy đoán hay khẳng định bí mật chưa lộ.
-Mỗi proposed item phải có dấu vết trong văn bản. Không tự duyệt canon.'''
+Cả hai trường đều bắt buộc. summary là chuỗi có nội dung, proposals là mảng có tối đa 12 đề xuất.
+Dùng proposals: [] nếu không có đề xuất. Mỗi đề xuất cần kind đúng loại, subject chỉ chủ thể và content có nội dung.
+Mỗi đề xuất phải có dấu vết trong văn bản. Không suy đoán, khẳng định bí mật chưa lộ hoặc tự duyệt canon.'''
 
 
 def short(s,maxlen=4500):
@@ -81,20 +85,97 @@ def scene_packet(project_id,outline,ch,sc,ai=None,use_embeddings=False, *, rewri
     ]), techniques
 
 
-def check_text(text,sc):
-    """Cheap literal checks are hints, not semantic proof of correctness."""
-    needed=[]
-    for item in sc.get('must_include',[]):
-        if item and item.casefold() not in text.casefold(): needed.append(item)
-    # A 'forbidden' note might be a semantic instruction: do not keyword match blindly.
-    count=len(text.split())
-    target=int(sc.get('target_words') or 0)
-    return {'word_count':count,'target_words':target,'literal_missing':needed,
-            'note':'Tự kiểm tra từ khóa không chứng minh câu chuyện hợp logic hoặc đã tuân thủ mọi điều cấm.'}
+CRITIC_FIELDS = ('critical', 'style', 'missing', 'strengths', 'fixes')
+SUMMARY_KINDS = ('fact', 'timeline', 'character', 'knowledge', 'thread')
+JSON_FENCE = re.compile(r'```(?:json)?\s*(.*?)\s*```', flags=re.I | re.S)
+DEFAULT_SCENE_MIN_RATIO = Decimal('0.80')
+EDITOR_MIN_RETENTION = Decimal('0.45')
+WORD_CONTENT = re.compile(r'[^\W_]')
+
+
+def scene_min_ratio():
+    try:
+        value = Decimal(os.environ.get('NOVEL_SCENE_MIN_RATIO', str(DEFAULT_SCENE_MIN_RATIO)))
+    except InvalidOperation:
+        raise ValueError('NOVEL_SCENE_MIN_RATIO phải là số lớn hơn 0 và không quá 1') from None
+    if not value.is_finite() or not 0 < value <= 1:
+        raise ValueError('NOVEL_SCENE_MIN_RATIO phải là số lớn hơn 0 và không quá 1')
+    return value
+
+
+def word_count(text):
+    return sum(bool(WORD_CONTENT.search(token)) for token in text.split())
+
+
+def check_text(text, sc, *, min_ratio=DEFAULT_SCENE_MIN_RATIO):
+    """Report literal hints and length, independent of literary judgment."""
+    folded = text.casefold()
+    missing = [item for item in sc.get('must_include', []) if item and item.casefold() not in folded]
+    try:
+        target = max(0, int(sc.get('target_words') or 0))
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError('target_words trong dàn ý phải là số từ hợp lệ') from None
+    count = word_count(text)
+    minimum = ceil(target * min_ratio)
+    return {'word_count': count, 'target_words': target, 'min_words': minimum,
+            'too_short': count < minimum, 'literal_missing': missing,
+            'note': 'Tự kiểm tra từ khóa và độ dài không chứng minh chất lượng văn học hoặc tính nhất quán.'}
+
+
+class CriticResponseError(ValueError):
+    """A response was received but cannot be used as a review."""
+
+
+def parse_critic_review(raw):
+    if not isinstance(raw, str):
+        raise CriticResponseError('JSON Critic không hợp lệ')
+    text = raw.strip()
+    fenced = JSON_FENCE.fullmatch(text)
+    if fenced:
+        text = fenced[1]
+    elif text.startswith('```') and not text.endswith('```'):
+        raise CriticResponseError('JSON Critic có dấu hiệu bị cắt (thiếu dấu đóng khối)')
+
+    try:
+        review = json.loads(text)
+    except json.JSONDecodeError as exc:
+        tail = text[exc.pos:]
+        partial_literal = bool(tail) and any(token.startswith(tail) for token in ('true', 'false', 'null'))
+        if text and (exc.pos == len(text) or exc.msg.startswith('Unterminated string') or partial_literal):
+            raise CriticResponseError('JSON Critic có dấu hiệu bị cắt (thiếu phần kết)') from None
+        raise CriticResponseError('JSON Critic không hợp lệ') from None
+
+    if not isinstance(review, dict):
+        raise CriticResponseError('Schema Critic sai: cần một object JSON')
+    for field in CRITIC_FIELDS:
+        entries = review.get(field)
+        if not isinstance(entries, list) or any(not isinstance(entry, str) for entry in entries):
+            raise CriticResponseError(f'Schema Critic sai: trường {field} phải là mảng chuỗi')
+    return {field: review[field] for field in CRITIC_FIELDS}
+
+
+def critique_scene(ai, packet, draft, checks, cloud, progress, length_warning):
+    prompt = (short(packet, 7000) + '\nKIỂM TRA TỪ KHÓA VÀ ĐỘ DÀI:\n'
+              + json.dumps(checks, ensure_ascii=False) + '\nBẢN NHÁP:\n' + short(draft, 5700))
+    budgets = (min(650, ai.settings.tokens), min(1000, ai.settings.tokens))
+    for attempt, budget in enumerate(budgets, 1):
+        if progress:
+            action = 'Đang soát dàn ý và tính nhất quán' if attempt == 1 else 'Đang thử lại Critic (2/2)'
+            progress(action + length_warning)
+        raw = ai.chat(SYSTEM_CRITIC, prompt, role='critic', cloud=cloud, temperature=.2,
+                      max_tokens=budget, structured=True)
+        try:
+            return parse_critic_review(raw)
+        except CriticResponseError as exc:
+            if attempt == len(budgets):
+                raise RuntimeError(f'Critic không hợp lệ sau {attempt} lượt. {exc}.'
+                                   f'{length_warning} Hãy tiếp tục tác vụ để thử lại.') from None
+            prompt += ('\nLƯỢT TRƯỚC KHÔNG DÙNG ĐƯỢC: ' + str(exc)
+                       + '. Chỉ trả một object JSON hoàn chỉnh với đủ năm mảng chuỗi, viết thật ngắn.')
 
 
 def process_scene(project_id,outline,ch,sc,ai,cloud_critic=False,use_embeddings=False,progress=None, *, rewrite=False, before_save=None):
-    """Checkpoint new scenes. Replace a rewritten scene only after it is ready."""
+    """Checkpoint each validated stage and publish rewrites only after every gate passes."""
     chapter_id, scene_id = str(ch['id']), str(sc['id'])
     c = story_db(project_id)
     try:
@@ -109,7 +190,7 @@ def process_scene(project_id,outline,ch,sc,ai,cloud_critic=False,use_embeddings=
     elif row and row['stage'] == 'edited' and row['edited']:
         return {'skipped': True}
 
-    def persist(stage, text, *, replacement=None):
+    def persist(*steps, invalidate_memory=False):
         nonlocal revision
         c = story_db(project_id)
         try:
@@ -117,58 +198,112 @@ def process_scene(project_id,outline,ch,sc,ai,cloud_critic=False,use_embeddings=
                 c.execute('BEGIN IMMEDIATE')
                 if scene_revision(c, chapter_id, scene_id) != revision:
                     raise RuntimeError('Cảnh đã thay đổi trong lúc AI xử lý. Bản đã lưu được giữ lại.')
-                if replacement:
-                    new_draft, new_review = replacement
-                    save_scene(c, chapter_id, scene_id, 'draft', new_draft, commit=False)
-                    save_scene(c, chapter_id, scene_id, 'review', new_review, commit=False)
+                for stage, text in steps:
+                    save_scene(c, chapter_id, scene_id, stage, text, commit=False)
+                if invalidate_memory:
                     invalidate_chapter_memory(c, chapter_id)
-                save_scene(c, chapter_id, scene_id, stage, text, commit=False)
                 revision = scene_revision(c, chapter_id, scene_id)
         finally:
             c.close()
 
+    min_ratio = scene_min_ratio()
     packet, tips = scene_packet(project_id,outline,ch,sc,ai,use_embeddings,rewriting=rewrite)
     tokens = ai.settings.tokens
     if not row or not row['draft']:
-        if progress:progress('Đang viết nháp')
-        draft = ai.chat(SYSTEM_WRITER,packet+'\nViết cảnh mới khoảng '+str(sc.get('target_words','350-600'))+' từ. Không chuyển sang cảnh khác.',
-                        role='writer',temperature=.82,max_tokens=tokens)
-        if not draft.strip():
-            raise RuntimeError('Mô hình trả về bản nháp trống.')
+        if progress:
+            progress('Đang viết nháp')
+        draft = ai.chat(SYSTEM_WRITER, packet + '\nViết cảnh mới khoảng ' + str(sc.get('target_words', '350-600'))
+                        + ' từ. Không chuyển sang cảnh khác.', role='writer', temperature=.82, max_tokens=tokens)
+        if not isinstance(draft, str) or not word_count(draft):
+            raise RuntimeError('Writer trả bản nháp trống hoặc không có từ.')
         if not rewrite:
-            persist('draft', draft)
+            persist(('draft', draft))
     else:
         draft = row['draft']
 
-    checks = check_text(draft,sc)
-    if not row or not row['review'] or not row['draft']:
-        if progress:progress('Đang soát dàn ý và tính nhất quán')
-        critic_prompt = short(packet,7000)+'\nKIỂM TRA TỪ KHÓA:\n'+json.dumps(checks,ensure_ascii=False)+'\nBẢN NHÁP:\n'+short(draft,5700)
-        review_raw = ai.chat(SYSTEM_CRITIC,critic_prompt,role='critic',cloud=cloud_critic,
-                             temperature=.2,max_tokens=650,structured=True)
-        try: review = json_from_text(review_raw)
-        except ValueError: review = {'unparsed':short(review_raw,1400)}
-        review_text = json.dumps(review,ensure_ascii=False)
+    checks = check_text(draft, sc, min_ratio=min_ratio)
+    quality = {'target_words': checks['target_words'], 'min_words': checks['min_words'],
+               'draft_words': checks['word_count'], 'draft_too_short': checks['too_short']}
+    warning = ''
+    if checks['too_short']:
+        warning = (f" Cảnh báo Writer thiếu từ: {quality['draft_words']}/{quality['target_words']} từ, "
+                   f"tối thiểu {quality['min_words']}.")
+    review = None
+    if row and row['draft'] and row['review']:
+        try:
+            review = parse_critic_review(row['review'])
+        except CriticResponseError:
+            pass  # Legacy invalid reviews on unfinished scenes are not valid checkpoints.
+    if review is None:
+        review = critique_scene(ai, packet, draft, checks, cloud_critic, progress, warning)
         if not rewrite:
-            persist('review', review_text)
-    else:
-        saved_review = row['review']
-        review = json.loads(saved_review) if saved_review.startswith('{') else {'unparsed':saved_review}
-        review_text = json.dumps(review,ensure_ascii=False)
+            checkpoint_review = json.dumps({**review, 'quality': quality}, ensure_ascii=False)
+            persist(('review', checkpoint_review))
 
-    if progress:progress('Đang biên tập văn phong')
-    edit_prompt = (short(packet,5500)+'\nBẢN NHÁP:\n'+short(draft,6200)+'\nNHẬN XÉT:\n'+short(review_text,1600)
-                   +'\nBảo toàn từng sự kiện, sửa có chọn lọc, chỉ trả bản thảo hoàn chỉnh.')
-    edited = ai.chat(SYSTEM_EDITOR,edit_prompt,role='editor',temperature=.48,max_tokens=tokens)
-    if len(edited.strip()) < max(180,int(len(draft)*.45)):
-        edited = draft
-        if progress:progress('Bản biên tập quá ngắn; giữ nguyên bản nháp để kiểm tra thủ công')
+    if progress:
+        progress('Đang biên tập văn phong.' + warning)
+    editor_min_words = max(1, quality['min_words'], ceil(quality['draft_words'] * EDITOR_MIN_RETENTION))
+    review_text = json.dumps(review, ensure_ascii=False)
+    edit_prompt = (short(packet, 5500) + '\nBẢN NHÁP:\n' + short(draft, 6200)
+                   + '\nNHẬN XÉT:\n' + short(review_text, 1600)
+                   + '\nBảo toàn sự kiện, lời thoại, điểm nhìn và ràng buộc dàn ý. Chỉ trả cảnh hoàn chỉnh.')
+    if quality['target_words']:
+        edit_prompt += (f" Cảnh cần khoảng {quality['target_words']} từ và ít nhất {editor_min_words} từ."
+                        ' Nếu bản nháp ngắn, chỉ mở rộng bằng chi tiết có ích cho cảnh và tránh lặp.')
+    edited = ai.chat(SYSTEM_EDITOR, edit_prompt, role='editor', temperature=.48, max_tokens=tokens)
+    edited_words = word_count(edited) if isinstance(edited, str) else 0
+    if edited_words < editor_min_words:
+        reason = 'Editor trả bản biên tập trống hoặc không có từ' if not edited_words else 'Editor trả bản biên tập quá ngắn'
+        target = quality['target_words'] or 'chưa đặt'
+        raise RuntimeError(f'{reason}: {edited_words} từ, mục tiêu {target}, tối thiểu {editor_min_words}. '
+                           'Bản đã lưu được giữ lại. Hãy tiếp tục tác vụ để thử lại.')
 
     if before_save:
         before_save()
-    persist('edited', edited, replacement=(draft, review_text) if rewrite else None)
+    quality.update(edited_words=edited_words, editor_min_words=editor_min_words)
+    stored_review = json.dumps({**review, 'quality': quality}, ensure_ascii=False)
+    steps = [('review', stored_review), ('edited', edited)]
+    if rewrite:
+        steps.insert(0, ('draft', draft))
+    persist(*steps, invalidate_memory=rewrite)
     export_chapter(project_id,ch)
-    return {'skipped':False,'words':len(edited.split()),'techniques':len(tips)}
+    return {'skipped': False, 'words': edited_words, 'techniques': len(tips), 'quality': quality}
+
+
+def _parse_chapter_summary(raw):
+    if not isinstance(raw, str):
+        raise ValueError('cần phản hồi JSON dạng văn bản')
+    text = raw.strip()
+    fenced = JSON_FENCE.fullmatch(text)
+    try:
+        result = json.loads(fenced[1] if fenced else text)
+    except json.JSONDecodeError:
+        raise ValueError('JSON sai cú pháp hoặc chưa hoàn chỉnh') from None
+    if not isinstance(result, dict):
+        raise ValueError('cần một object JSON')
+
+    summary = result.get('summary')
+    if not isinstance(summary, str) or not summary.strip():
+        raise ValueError('summary phải là chuỗi có nội dung')
+    proposals = result.get('proposals')
+    if not isinstance(proposals, list) or len(proposals) > 12:
+        raise ValueError('proposals phải là mảng có tối đa 12 đề xuất')
+
+    validated = []
+    for index, item in enumerate(proposals):
+        if not isinstance(item, dict):
+            raise ValueError(f'proposals[{index}] phải là object')
+        kind = item.get('kind')
+        subject = item.get('subject')
+        content = item.get('content')
+        if not isinstance(kind, str) or kind not in SUMMARY_KINDS:
+            raise ValueError(f'proposals[{index}].kind không hợp lệ')
+        if not isinstance(subject, str) or not subject.strip():
+            raise ValueError(f'proposals[{index}].subject phải là chuỗi có nội dung')
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(f'proposals[{index}].content phải là chuỗi có nội dung')
+        validated.append((kind, subject.strip()[:120], content.strip()[:900]))
+    return short(summary.strip(), 4000), validated
 
 
 def summarize_chapter(project_id,ch,ai):
@@ -190,10 +325,10 @@ def summarize_chapter(project_id,ch,ai):
     text='\n\n'.join(scenes)
     raw=ai.chat(SYSTEM_SUMMARY,'CHƯƠNG: '+ch['title']+'\nBẢN THẢO ĐÃ VIẾT:\n'+short(text,11000),
                 role='summary',temperature=.22,max_tokens=950,structured=True)
-    try: obj=json_from_text(raw)
-    except ValueError: obj={'summary':short(raw,1800),'proposals':[]}
-    summary=short(str(obj.get('summary','')).strip() or 'Chưa tạo được bản tóm tắt.',4000)
-    proposals=obj.get('proposals',[])
+    try:
+        summary, proposals = _parse_chapter_summary(raw)
+    except ValueError as exc:
+        raise RuntimeError(f'Summary không hợp lệ: {exc}. Hãy tiếp tục tác vụ để tạo lại tóm tắt.') from None
     c=story_db(project_id)
     try:
         c.execute('BEGIN IMMEDIATE')
@@ -204,16 +339,12 @@ def summarize_chapter(project_id,ch,ai):
                   (str(ch['id']),summary,'pending',now()))
         # Old machine proposals from regenerated chapter are superseded, never silently kept canon.
         c.execute("UPDATE memory_items SET status='revoked' WHERE chapter=? AND source='model' AND status!='revoked'",(str(ch['id']),))
-        for p in (proposals if isinstance(proposals,list) else [])[:12]:
-            if not isinstance(p,dict):continue
-            kind=str(p.get('kind',''))
-            if kind not in ('fact','timeline','character','knowledge','thread'):continue
-            content=str(p.get('content','')).strip()[:900]
-            subject=str(p.get('subject','')).strip()[:120]
-            if content:
-                c.execute('''INSERT INTO memory_items(kind,subject,content,chapter,source,status,visibility,created)
-                             VALUES(?,?,?,?,?,'pending',?,?)''',(kind,subject,content,str(ch['id']),'model',
-                                   'private' if kind=='knowledge' else 'public',now()))
+        for kind, subject, content in proposals:
+            c.execute(
+                """INSERT INTO memory_items(kind,subject,content,chapter,source,status,visibility,created)
+                   VALUES(?,?,?,?,?,'pending',?,?)""",
+                (kind, subject, content, chapter_id, 'model', 'private' if kind == 'knowledge' else 'public', now()),
+            )
         c.commit()
         return 'pending'
     finally:c.close()
