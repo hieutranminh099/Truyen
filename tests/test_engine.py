@@ -34,7 +34,9 @@ class FakeAI:
         if role=='summary':return json.dumps({'summary':'An trở về thị trấn và nghe tiếng chuông.',
                   'proposals':[{'kind':'fact','subject':'An','content':'An nghe tiếng chuông gỉ bên bến đò.'}]},ensure_ascii=False)
         if role=='critic':return json.dumps({'critical':[],'style':[],'missing':[],'strengths':['nhịp đều'],'fixes':[]},ensure_ascii=False)
-        if role=='editor':return 'Cô nắm chiếc chuông đồng gỉ, lặng lẽ bước qua bến đò. '*40
+        if role=='editor':
+            required = 'mẩu giấy không có tên' if 'mẩu giấy không có tên' in user else 'chuông đồng gỉ'
+            return f'Cô nắm {required}, lặng lẽ bước qua bến đò. '*40
         if role=='roleplay':return 'Tôi sẽ không tiết lộ bí mật khi chưa có lý do.'
         return 'An nghe tiếng chuông đồng gỉ từ phía bến đò. '*50
     def embed(self,text):return [0.3,0.5,0.7]
