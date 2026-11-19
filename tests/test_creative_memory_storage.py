@@ -53,7 +53,9 @@ class MemoryStorageTests(unittest.TestCase):
         path = directory / MEMORY_FILENAME
         self.assertFalse(path.exists())
         store = SQLiteMemoryStore(directory, project_id="new", layout_id=self.contract.layout_id)
-        self.assertEqual(store.path, path)
+        # On Windows the temp directory may be an 8.3 alias (RUNNER~1) while
+        # SQLiteMemoryStore resolves it to the canonical long path.
+        self.assertTrue(store.path.samefile(path))
         self.assertTrue(path.read_bytes().startswith(b"SQLite format 3\x00"))
         reopened = SQLiteMemoryStore(directory, project_id="new", layout_id=self.contract.layout_id).read()
         self.assertEqual(reopened.revision, 0)
