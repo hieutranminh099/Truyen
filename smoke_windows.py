@@ -35,7 +35,7 @@ class OllamaFixture(BaseHTTPRequestHandler):
                     'critical': [], 'style': [], 'missing': [], 'strengths': [], 'fixes': [],
                 })
         elif 'Chỉnh những câu' in system:
-            text = ('An đặt chuông lên bàn. Ngoài cửa, tiếng mưa đã ngớt. ' * 28).strip()
+            text = ('An đặt chuông đồng gỉ lên bàn. Ngoài cửa, tiếng mưa đã ngớt. ' * 28).strip()
         else:
             text = ('An nghe tiếng chuông đồng gỉ ở bến đò rồi bước xuống thuyền. ' * 24).strip()
         body = json.dumps({'message': {'content': text}}).encode()
