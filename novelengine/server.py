@@ -13,7 +13,7 @@ import zipfile
 from datetime import datetime
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-from .config import ROOT, Settings, MAX_JSON_BYTES, MAX_UPLOAD_BYTES, project_dir, validate_project_id
+from .config import ROOT, DATA_ROOT, Settings, MAX_JSON_BYTES, MAX_UPLOAD_BYTES, project_dir, validate_project_id
 from .store import (bootstrap, create_project, projects, queue_db, story_db, now, atomic_text,
                     update_memory, restore_version, export_chapter, get_scene, save_scene,
                     invalidate_chapter_memory)
@@ -21,6 +21,8 @@ from .outline import load_outline, parse_outline
 from .rag import import_document, search_library
 from .ai import AI
 from .jobs import JobQueue
+from .project_backup import create_backup, restore_backup, MAX_RESTORE_BYTES
+from .project_state import project_write_lock, project_state, enable_creative
 
 
 class NovelApp:
@@ -105,6 +107,8 @@ def make_handler(app):
                 if not route:return self.reply({'error':'API route không tồn tại'},404)
                 pid,action=route; d=project_dir(pid)
                 if not (d/'story.db').exists(): raise FileNotFoundError('Dự án không tồn tại')
+                if action=='creative-status':
+                    return self.reply(project_state(d, project_id=pid))
                 if action=='outline':return self.reply({'value':load_outline(d/'outline.json')})
                 if action=='candidate':
                     x=d/'outline_candidate.json'
@@ -207,6 +211,13 @@ def make_handler(app):
                 if not self.browse_auth():return self.reply({'error':'Mã truy cập không đúng'},401)
                 if p=='/api/projects':
                     data=self.read_json();return self.reply(create_project(str(data.get('title','Truyện mới')),str(data.get('id',''))),201)
+                if p=='/api/restore-project':
+                    new_id = validate_project_id(q.get('id', [''])[0])
+                    raw = self.read_body(MAX_RESTORE_BYTES)
+                    with tempfile.TemporaryDirectory(prefix='.restore-upload-', dir=DATA_ROOT) as folder:
+                        archive = Path(folder) / 'upload.zip'
+                        archive.write_bytes(raw)
+                        return self.reply(restore_backup(archive, new_id), 201)
                 m=re.fullmatch(r'/api/jobs/(\d+)/(pause|cancel|resume)',p)
                 if m:
                     app.jobs.command(int(m.group(1)),m.group(2))
@@ -215,141 +226,103 @@ def make_handler(app):
                 if not route:return self.reply({'error':'API route không tồn tại'},404)
                 pid,action=route; d=project_dir(pid)
                 if not (d/'story.db').exists():raise FileNotFoundError('Dự án không tồn tại')
-                if action=='upload':
-                    name=q.get('name',[''])[0]; license_note=q.get('license',[''])[0]
-                    confirmed=q.get('rights',[''])[0]=='yes'
-                    return self.reply(import_document(pid,name,self.read_body(MAX_UPLOAD_BYTES),license_note,confirmed),201)
-                data=self.read_json()
-                if action=='outline':
-                    obj=parse_outline(data.get('value',{}))
-                    # Existing scenes with changed IDs should never silently mix histories.
-                    c=story_db(pid)
-                    try:has_data=bool(c.execute('SELECT 1 FROM scenes LIMIT 1').fetchone())
-                    finally:c.close()
-                    if has_data and not data.get('confirm_existing'):
-                        raise ValueError('Dự án đã có bản thảo. Xác nhận confirm_existing=true sau khi đã sao lưu; tránh thay đổi ID cảnh/chương.')
-                    atomic_text(d/'outline.json',json.dumps(obj,ensure_ascii=False,indent=2))
-                    return self.reply({'ok':True})
-                if action=='candidate-accept':
-                    candidate=d/'outline_candidate.json'
-                    if not candidate.exists():raise ValueError('Không có dàn ý đề xuất')
-                    c=story_db(pid)
-                    try:has=bool(c.execute('SELECT 1 FROM scenes LIMIT 1').fetchone())
-                    finally:c.close()
-                    if has:raise ValueError('Dự án đã có bản thảo; không tự ghi đè dàn ý')
-                    obj=parse_outline(candidate.read_text(encoding='utf8'))
-                    atomic_text(d/'outline.json',json.dumps(obj,ensure_ascii=False,indent=2))
-                    return self.reply({'ok':True})
-                if action=='voice':
-                    text=str(data.get('text',''))
-                    if len(text)>16000:raise ValueError('Voice Bible dài quá 16.000 ký tự')
-                    atomic_text(d/'voice_bible.md',text)
-                    return self.reply({'ok':True})
-                if action=='job':
-                    kind=str(data.get('kind','series'))
-                    payload=dict(data.get('payload',{}))
-                    if kind=='plan' and payload.get('cloud') and not app.settings.cloud_enabled:
-                        raise ValueError('Cloud đang tắt trong cấu hình')
-                    if kind=='series' and payload.get('cloud_critic') and not app.settings.cloud_enabled:
-                        raise ValueError('Cloud đang tắt trong cấu hình')
-                    if kind=='plan' and not isinstance(payload.get('premise'),str):
-                        raise ValueError('Cần premise là chuỗi')
-                    return self.reply({'id':app.jobs.submit(pid,kind,payload)},201)
-                if action=='approve-chapter':
-                    ch=str(data.get('chapter',''));c=story_db(pid)
-                    try:
-                        r=c.execute("UPDATE summaries SET status='approved',updated=? WHERE chapter=? AND status='pending'",(now(),ch))
-                        if not r.rowcount: raise ValueError('Chương không có tóm tắt đang chờ duyệt')
-                        c.commit()
-                    finally:c.close()
-                    app.jobs.wake_approval(pid)
-                    return self.reply({'ok':True})
-                if action=='memory':
-                    kind=str(data.get('kind','fact'))
-                    if kind not in ('fact','timeline','character','knowledge','thread'):raise ValueError('Loại trí nhớ không hợp lệ')
-                    content=str(data.get('content','')).strip()
-                    if not content or len(content)>1600:raise ValueError('Nội dung trống hoặc quá 1600 ký tự')
-                    subject=str(data.get('subject',''))[:120]
-                    c=story_db(pid)
-                    try:
-                        cur=c.execute('INSERT INTO memory_items(kind,subject,content,source,status,visibility,created) VALUES(?,?,?,"manual","pending",?,?)',
-                                      (kind,subject,content,'private' if kind=='knowledge' else str(data.get('visibility','public')),now()));c.commit()
-                        return self.reply({'id':cur.lastrowid},201)
-                    finally:c.close()
-                if action=='memory-action':
-                    c=story_db(pid)
-                    try:update_memory(c,int(data['id']),str(data['action']))
-                    finally:c.close()
-                    return self.reply({'ok':True})
-                if action=='scene-edit':
-                    chapter_id=str(data.get('chapter',''));scene_id=str(data.get('scene',''))
-                    prose=str(data.get('text','')).strip()
-                    if len(prose)<30 or len(prose)>100000: raise ValueError('Bản sửa cần 30–100.000 ký tự')
-                    outline=load_outline(d/'outline.json')
-                    chapter=next((ch for ch in outline['chapters'] if ch['id']==chapter_id),None)
-                    if not chapter or not any(sc['id']==scene_id for sc in chapter['scenes']):
-                        raise ValueError('Cảnh không có trong dàn ý')
-                    c=story_db(pid)
-                    try:
-                        with c:
-                            save_scene(c, chapter_id, scene_id, 'edited', prose, commit=False)
-                            invalidate_chapter_memory(c, chapter_id)
-                    finally:c.close()
-                    export_chapter(pid,chapter)
-                    return self.reply({'ok':True})
-                if action=='restore':
-                    return self.reply(restore_version(pid,int(data['version_id'])))
-                if action=='backup':
-                    return self.reply({'name':self._backup(pid)})
-                return self.reply({'error':'Không có endpoint này'},404)
+                if action=='creative-enable':
+                    data = self.read_json()
+                    if data.get('confirm') is not True:
+                        raise ValueError('Cần confirm=true để bật Creative cho dự án chưa có dữ liệu.')
+                    return self.reply(enable_creative(pid))
+                with project_write_lock(d):
+                    if action=='upload':
+                        name=q.get('name',[''])[0]; license_note=q.get('license',[''])[0]
+                        confirmed=q.get('rights',[''])[0]=='yes'
+                        return self.reply(import_document(pid,name,self.read_body(MAX_UPLOAD_BYTES),license_note,confirmed),201)
+                    data=self.read_json()
+                    if action=='outline':
+                        obj=parse_outline(data.get('value',{}))
+                        # Existing scenes with changed IDs should never silently mix histories.
+                        c=story_db(pid)
+                        try:has_data=bool(c.execute('SELECT 1 FROM scenes LIMIT 1').fetchone())
+                        finally:c.close()
+                        if has_data and not data.get('confirm_existing'):
+                            raise ValueError('Dự án đã có bản thảo. Xác nhận confirm_existing=true sau khi đã sao lưu; tránh thay đổi ID cảnh/chương.')
+                        atomic_text(d/'outline.json',json.dumps(obj,ensure_ascii=False,indent=2))
+                        return self.reply({'ok':True})
+                    if action=='candidate-accept':
+                        candidate=d/'outline_candidate.json'
+                        if not candidate.exists():raise ValueError('Không có dàn ý đề xuất')
+                        c=story_db(pid)
+                        try:has=bool(c.execute('SELECT 1 FROM scenes LIMIT 1').fetchone())
+                        finally:c.close()
+                        if has:raise ValueError('Dự án đã có bản thảo; không tự ghi đè dàn ý')
+                        obj=parse_outline(candidate.read_text(encoding='utf8'))
+                        atomic_text(d/'outline.json',json.dumps(obj,ensure_ascii=False,indent=2))
+                        return self.reply({'ok':True})
+                    if action=='voice':
+                        text=str(data.get('text',''))
+                        if len(text)>16000:raise ValueError('Voice Bible dài quá 16.000 ký tự')
+                        atomic_text(d/'voice_bible.md',text)
+                        return self.reply({'ok':True})
+                    if action=='job':
+                        kind=str(data.get('kind','series'))
+                        payload=dict(data.get('payload',{}))
+                        if kind=='plan' and payload.get('cloud') and not app.settings.cloud_enabled:
+                            raise ValueError('Cloud đang tắt trong cấu hình')
+                        if kind=='series' and payload.get('cloud_critic') and not app.settings.cloud_enabled:
+                            raise ValueError('Cloud đang tắt trong cấu hình')
+                        if kind=='plan' and not isinstance(payload.get('premise'),str):
+                            raise ValueError('Cần premise là chuỗi')
+                        return self.reply({'id':app.jobs.submit(pid,kind,payload)},201)
+                    if action=='approve-chapter':
+                        ch=str(data.get('chapter',''));c=story_db(pid)
+                        try:
+                            r=c.execute("UPDATE summaries SET status='approved',updated=? WHERE chapter=? AND status='pending'",(now(),ch))
+                            if not r.rowcount: raise ValueError('Chương không có tóm tắt đang chờ duyệt')
+                            c.commit()
+                        finally:c.close()
+                        app.jobs.wake_approval(pid)
+                        return self.reply({'ok':True})
+                    if action=='memory':
+                        kind=str(data.get('kind','fact'))
+                        if kind not in ('fact','timeline','character','knowledge','thread'):raise ValueError('Loại trí nhớ không hợp lệ')
+                        content=str(data.get('content','')).strip()
+                        if not content or len(content)>1600:raise ValueError('Nội dung trống hoặc quá 1600 ký tự')
+                        subject=str(data.get('subject',''))[:120]
+                        c=story_db(pid)
+                        try:
+                            cur=c.execute('INSERT INTO memory_items(kind,subject,content,source,status,visibility,created) VALUES(?,?,?,"manual","pending",?,?)',
+                                          (kind,subject,content,'private' if kind=='knowledge' else str(data.get('visibility','public')),now()));c.commit()
+                            return self.reply({'id':cur.lastrowid},201)
+                        finally:c.close()
+                    if action=='memory-action':
+                        c=story_db(pid)
+                        try:update_memory(c,int(data['id']),str(data['action']))
+                        finally:c.close()
+                        return self.reply({'ok':True})
+                    if action=='scene-edit':
+                        chapter_id=str(data.get('chapter',''));scene_id=str(data.get('scene',''))
+                        prose=str(data.get('text','')).strip()
+                        if len(prose)<30 or len(prose)>100000: raise ValueError('Bản sửa cần 30–100.000 ký tự')
+                        outline=load_outline(d/'outline.json')
+                        chapter=next((ch for ch in outline['chapters'] if ch['id']==chapter_id),None)
+                        if not chapter or not any(sc['id']==scene_id for sc in chapter['scenes']):
+                            raise ValueError('Cảnh không có trong dàn ý')
+                        c=story_db(pid)
+                        try:
+                            with c:
+                                save_scene(c, chapter_id, scene_id, 'edited', prose, commit=False)
+                                invalidate_chapter_memory(c, chapter_id)
+                        finally:c.close()
+                        export_chapter(pid,chapter)
+                        return self.reply({'ok':True})
+                    if action=='restore':
+                        return self.reply(restore_version(pid,int(data['version_id'])))
+                    if action=='backup':
+                        return self.reply({'name':self._backup(pid)})
+                    return self.reply({'error':'Không có endpoint này'},404)
             except Exception as e:self.error_reply(e)
 
         def _backup(self,pid):
-            d = project_dir(pid)
-            sidecar = d / 'creative-memory.sqlite3'
-
-            def reject_unprotected_creative():
-                # Until two-database snapshots + restore are implemented (Issue #11),
-                # never advertise a ZIP omitting an existing Creative ledger.
-                if os.path.lexists(sidecar):
-                    raise RuntimeError(
-                        'Không thể sao lưu dự án có creative-memory.sqlite3 bằng '
-                        'backup V4 cũ. Cần Backup & Restore Creative hai SQLite.'
-                    )
-
-            reject_unprotected_creative()
-            stamp = datetime.now().strftime('%Y%m%dT%H%M%S%f')
-            name = f'backup_{stamp}.zip'
-            backups = d / 'backups'
-            backups.mkdir(exist_ok=True)
-            target = backups / name
-            # ZIP is private to staging until all files and CRC have passed.
-            # Staging is on the same volume to make the final rename atomic.
-            with tempfile.TemporaryDirectory(prefix='.backup-staging-', dir=backups) as temp:
-                stage = Path(temp)
-                snapshot = stage / 'story.db'
-                c = story_db(pid)
-                dest = sqlite3.connect(snapshot)
-                try:
-                    c.backup(dest)
-                finally:
-                    dest.close()
-                    c.close()
-                zip_path = stage / 'archive.zip'
-                with zipfile.ZipFile(zip_path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
-                    archive.write(snapshot, 'story.db')
-                    files = [d / name for name in ('outline.json', 'outline_candidate.json', 'voice_bible.md')]
-                    files.extend((d / 'exports').glob('chapter_*.md'))
-                    for item in files:
-                        if (item.is_file() and not item.is_symlink()
-                                and item.resolve().is_relative_to(d.resolve())):
-                            archive.write(item, item.relative_to(d).as_posix())
-                with zipfile.ZipFile(zip_path) as archive:
-                    if damaged := archive.testzip():
-                        raise RuntimeError('Backup ZIP hỏng tại tệp: ' + damaged)
-                reject_unprotected_creative()
-                zip_path.replace(target)
-            return name
+            return create_backup(pid)
 
         def gateway(self,data):
             """Best-effort OpenAI-compatible endpoint; stream mode returns buffered SSE."""
