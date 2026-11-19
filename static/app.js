@@ -19,7 +19,7 @@ async function fire(fn){try{await fn()}catch(e){alertMessage(e.message||String(e
 function view(name){
   for(const p of document.querySelectorAll('.panel'))p.classList.toggle('active',p.id==='panel-'+name);
   for(const n of document.querySelectorAll('.nav'))n.classList.toggle('active',n.dataset.panel===name);
-  $('page-title').textContent=({'dashboard':'Tổng quan dự án','outline':'Dàn ý & AI đạo diễn','jobs':'Bộ máy viết tự động','drafts':'Bản thảo','memory':'Trí nhớ thế giới truyện','library':'Kho tri thức văn học','settings':'Kết nối hệ thống'})[name]||'Novel Engine';
+  $('page-title').textContent=({'dashboard':'Tổng quan dự án','outline':'Dàn ý & nhân vật','jobs':'Viết truyện bằng AI','drafts':'Bản thảo','memory':'Trí nhớ truyện','library':'Tài liệu tham khảo','settings':'Cài đặt & kết nối'})[name]||'Novel Engine';
   window.scrollTo({top:0,behavior:'instant'});
   if(name==='jobs')void fire(loadJobs);
   if(name==='memory')void fire(async()=>{await loadMemory();await loadCreative()});
@@ -46,6 +46,10 @@ function setProject(pid){
 async function loadProjects(){const x=await request('/api/bootstrap');allProjects=x.projects;const sel=$('project-select');sel.innerHTML='';for(const p of allProjects){const opt=document.createElement('option');opt.value=p.id;opt.textContent=p.title+' ('+p.id+')';sel.append(opt)}
   const saved=sessionStorage.getItem('novel_project');project=(allProjects.find(x=>x.id===saved)||allProjects[0]||{}).id||'';sel.value=project;
   $('config-view').innerHTML=Object.entries(x.settings).map(([k,v])=>`<div class="stat config-value"><small>${esc(k)}</small><b>${esc(v)}</b></div>`).join('');
+  const port=Number(x.settings?.port)||8765;
+  $('settings-local-url').textContent='127.0.0.1:'+port;
+  $('settings-tailscale-command').textContent='tailscale serve --bg '+port;
+  $('settings-gateway-url').textContent='http://127.0.0.1:'+port+'/v1';
   $('server-dot').classList.add('online');$('server-label').textContent='Đã kết nối · Local first';
 }
 async function refreshAll(){if(!project)return;await Promise.all([loadDashboard(),loadOutline(),loadVoice(),loadJobs(),loadMemory(),loadLibrary(),loadDrafts()])}
@@ -208,7 +212,48 @@ for(const b of document.querySelectorAll('[data-panel]'))b.addEventListener('cli
 for(const b of document.querySelectorAll('[data-go]'))b.addEventListener('click',()=>view(b.dataset.go));
 $('auth-submit').addEventListener('click',()=>void beginAuth());$('auth-input').addEventListener('keydown',e=>{if(e.key==='Enter')void beginAuth()});
 $('project-select').addEventListener('change',e=>setProject(e.target.value));
-$('new-project').addEventListener('click',()=>fire(async()=>{const title=prompt('Tên truyện mới:');if(!title)return;const id=prompt('ID dự án (chữ không dấu, số, gạch ngang):','truyen-moi');if(!id)return;const x=await request('/api/projects',{value:{title,id}});await loadProjects();setProject(x.id);alertMessage('Đã tạo dự án '+x.title)}));
+function friendlyStoryId(title){
+  const base=title.normalize('NFD').replace(/[\u0300-\u036f]/g,'')
+    .replace(/đ/g,'d').replace(/Đ/g,'D')
+    .toLowerCase().replace(/[^a-z0-9_-]+/g,'-')
+    .replace(/^-+|-+$/g,'').slice(0,40)||'truyen-moi';
+  let candidate=base;
+  let number=2;
+  while(allProjects.some(p=>p.id===candidate)){
+    const suffix='-'+number++;
+    candidate=base.slice(0,48-suffix.length)+suffix;
+  }
+  return candidate;
+}
+$('new-project').addEventListener('click',()=>{
+  const dialog=$('new-story-dialog');
+  $('new-story-form').reset();
+  $('new-story-error').textContent='';
+  dialog.showModal();
+  $('new-story-name').focus();
+});
+$('new-story-cancel').addEventListener('click',()=>$('new-story-dialog').close());
+$('new-story-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const name=$('new-story-name').value.trim();
+  if(!name)return;
+  const id=$('new-story-id').value.trim()||friendlyStoryId(name);
+  const submit=$('new-story-create');
+  submit.disabled=true;
+  $('new-story-error').textContent='';
+  try{
+    const created=await request('/api/projects',{value:{title:name,id}});
+    await loadProjects();
+    $('new-story-dialog').close();
+    setProject(created.id);
+    alertMessage('Đã tạo truyện mới: '+created.title);
+    view('outline');
+  }catch(error){
+    $('new-story-error').textContent=error.message||String(error);
+  }finally{
+    submit.disabled=false;
+  }
+});
 $('refresh-dashboard').addEventListener('click',()=>fire(loadDashboard));
 $('save-outline').addEventListener('click',()=>fire(async()=>{const v=JSON.parse($('outline-text').value);await request('/api/project/'+qp(project)+'/outline',{value:{value:v,confirm_existing:$('outline-confirm').checked}});alertMessage('Đã lưu dàn ý');await loadDashboard()}));
 $('save-voice').addEventListener('click',()=>fire(async()=>{await request('/api/project/'+qp(project)+'/voice',{value:{text:$('voice-text').value}});alertMessage('Đã lưu Voice Bible')}));
