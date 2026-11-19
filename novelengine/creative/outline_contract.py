@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import unicodedata
 from copy import deepcopy
 from dataclasses import dataclass
 from itertools import chain
-from typing import Callable, Iterable, Literal
+from typing import Callable, Iterable, Literal, Protocol
 
 from ..outline import parse_outline
-from .memory_rules import MemoryLedger, StoryPosition
+from .memory_rules import MemorySnapshot, StoryPosition
 from .retrieval_engine import TechniqueNote, writer_hints
 
 
@@ -18,6 +19,11 @@ _SCENE_FIELDS = (
     "pov", "goal", "beats", "must_include", "forbidden", "continuity_requirements",
     "emotional_arc", "creative_freedom", "target_words", "creative",
 )
+DEFAULT_SCENE_PACKET_BUDGET = 2200
+
+
+class _SnapshotReader(Protocol):
+    def snapshot(self, *, before: StoryPosition | None = None) -> MemorySnapshot: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,14 +53,26 @@ class OutlineContract:
             for chapter_index, chapter in enumerate(outline["chapters"], 1)
             for scene_index, scene in enumerate(chapter["scenes"], 1)
         }
+        ordered_ids = [(ref.chapter_id, ref.scene_id) for ref in self._positions]
+        self._layout_id = hashlib.sha256(json.dumps(ordered_ids, separators=(",", ":")).encode("ascii")).hexdigest()
+
+    @property
+    def layout_id(self) -> str:
+        """Identify the ordered chapter and scene IDs used by memory positions."""
+        return self._layout_id
 
     def to_v4(self) -> dict:
         """Return an independent V4-compatible copy, including extension fields."""
         return deepcopy(self._outline)
 
-    def scene_position(self, chapter_id: str, scene_id: str) -> StoryPosition:
+    def scene_position(self, chapter_id: str, scene_id: str, *, beat: int = 0) -> StoryPosition:
         """Map V4 IDs to narrative position using outline order."""
-        return self._positions[SceneRef(str(chapter_id).strip(), str(scene_id).strip())]
+        ref = SceneRef(str(chapter_id).strip(), str(scene_id).strip())
+        start = self._positions[ref]
+        position = StoryPosition(start.chapter, start.scene, beat)
+        if beat > len(self._scenes[ref]["beats"]):
+            raise ValueError("Beat nằm ngoài cảnh trong dàn ý.")
+        return position
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,9 +408,9 @@ def build_scene_packet(
     chapter_id: str,
     scene_id: str,
     *,
-    budget: int = 2200,
-    measure: Callable[[str], int] = _utf8_bytes,
-    memory: MemoryLedger | None = None,
+    budget: int = DEFAULT_SCENE_PACKET_BUDGET,
+    measure: Callable[[str], int] | None = None,
+    memory: _SnapshotReader | None = None,
     approved_pov_context: Iterable[str] = (),
     voice_guidance: str = "",
     techniques: Iterable[TechniqueNote] = (),
@@ -400,6 +418,8 @@ def build_scene_packet(
     """Pack required fields intact, then fit optional items, using UTF-8 bytes by default."""
     if budget <= 0:
         raise ValueError("Ngân sách Scene Packet phải dương.")
+    if measure is None:
+        measure = _utf8_bytes
     ref = SceneRef(str(chapter_id).strip(), str(scene_id).strip())
     scene = contract._scenes[ref]
     payload = {"chapter_id": ref.chapter_id, "scene_id": ref.scene_id}
