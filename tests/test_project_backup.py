@@ -9,6 +9,7 @@ import threading
 import time
 import unittest
 import zipfile
+from contextlib import closing
 from pathlib import Path
 from unittest.mock import patch
 
@@ -34,7 +35,7 @@ class ProjectBackupTests(Base):
         return Path(root.name) / 'projects' / self.pid, result
 
     def test_legacy_zip_roundtrip_with_manifest_and_crc(self):
-        with story_db(self.pid) as db:
+        with closing(story_db(self.pid)) as db, db:
             save_scene(db, '001', '01', 'edited', 'Bản thảo V4.' * 15, commit=False)
         archive = self.backup()
         with zipfile.ZipFile(archive) as zipfile_obj:
@@ -46,7 +47,7 @@ class ProjectBackupTests(Base):
             self.assertIsNone(zipfile_obj.testzip())
         target, result = self.restored(archive)
         self.assertFalse(result['creative_enabled'])
-        with sqlite3.connect(target / 'story.db') as db:
+        with closing(sqlite3.connect(target / 'story.db')) as db:
             self.assertEqual(db.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
             self.assertEqual(db.execute("SELECT stage FROM scenes").fetchone()[0], 'edited')
         self.assertFalse(project_state(target, project_id=self.pid)['creative_enabled'])
