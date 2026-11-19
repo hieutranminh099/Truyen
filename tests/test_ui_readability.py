@@ -63,6 +63,24 @@ class UIReadabilityTests(unittest.TestCase):
         self.assertIn("document.querySelectorAll('[data-go]')", JS)
         self.assertIn("document.querySelectorAll('[data-panel]')", JS)
 
+    def test_create_story_is_guided_and_keeps_existing_projects(self):
+        tree = _Elements()
+        tree.feed(HTML)
+        for element in ('new-story-dialog', 'new-story-form', 'new-story-name',
+                        'new-story-id', 'new-story-create', 'new-story-cancel'):
+            self.assertIn(element, tree.ids)
+        self.assertIn('friendlyStoryId(title)', JS)
+        self.assertIn("title.normalize('NFD')", JS)
+        self.assertNotIn("prompt('Tên truyện mới:", JS)
+        self.assertIn("view('outline')", JS)
+
+    def test_settings_uses_actual_runtime_port(self):
+        for element in ('settings-local-url', 'settings-tailscale-command',
+                        'settings-gateway-url'):
+            self.assertIn('id="' + element + '"', HTML)
+        self.assertIn("Number(x.settings?.port)||8765", JS)
+        self.assertIn("$('settings-tailscale-command').textContent=", JS)
+
     def test_mobile_layout_and_keyboard_focus_are_present(self):
         self.assertIn('@media (max-width: 680px)', CSS)
         self.assertIn(':focus-visible', CSS)
