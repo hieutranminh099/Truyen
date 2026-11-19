@@ -1,0 +1,75 @@
+{
+  "schema_version": "4.0",
+  "story_id": "nut-day-nguoc",
+  "title": "Nút dây thắt ngược",
+  "theme": "Cái giá của việc bảo vệ người thân",
+  "genre": "Trinh thám tâm lý",
+  "premise": "Mai điều tra một vụ mất điện ở bến đò.",
+  "world": "Trạm điện cũ dùng sổ giấy để ghi phiên trực.",
+  "characters": [
+    {"id": "mai", "name": "Mai", "traits": "Điềm đạm, giỏi quan sát", "goal": "Tìm ca trực bị bỏ trống"},
+    {"id": "hau", "name": "Hậu", "traits": "Tránh nhắc chuyện gia đình", "secret": "Đã đổi ca trực cho chị mình"}
+  ],
+  "creative": {
+    "initial_conditions": ["mai_co_chia_khoa"],
+    "initial_knowledge": [
+      {"character": "Hậu", "fact_id": "X01", "state": "known"},
+      {"character": "Mai", "fact_id": "X01", "state": "unknown"}
+    ],
+    "secrets": [
+      {"id": "X01", "reveal_from": {"chapter_id": "002", "scene_id": "01"}}
+    ]
+  },
+  "chapters": [
+    {
+      "id": "001",
+      "title": "Vết mực",
+      "purpose": "Tìm được đầu mối có thể kiểm tra",
+      "scenes": [
+        {
+          "id": "01",
+          "title": "Khóa phòng trực",
+          "pov": "Mai",
+          "goal": "Mai tìm được tờ phiếu kẹp dưới sổ trực.",
+          "beats": ["Mai mở khóa phòng trực.", "Mai tìm thấy tờ phiếu còn dính mực tím."],
+          "must_include": ["tờ phiếu"],
+          "forbidden": ["Tên người đã đổi ca"],
+          "emotional_arc": "sốt ruột → thận trọng",
+          "creative_freedom": "Tự chọn cử chỉ và âm thanh ở trạm điện.",
+          "target_words": 350,
+          "creative": {
+            "forbid_secrets": ["X01"],
+            "beat_rules": [
+              {"beat": 1, "requires": ["mai_co_chia_khoa"]},
+              {"beat": 2, "establishes": ["mai_co_phieu"]}
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "002",
+      "title": "Ca trực",
+      "scenes": [
+        {
+          "id": "01",
+          "title": "Mặt sau tờ phiếu",
+          "pov": "Mai",
+          "goal": "Mai đối chiếu tờ phiếu với sổ và xác định ai đổi ca.",
+          "beats": ["Mai tìm được chữ ký của Hậu trên phiếu.", "Mai hỏi Hậu vì sao anh đổi ca."],
+          "must_include": ["chữ ký của Hậu"],
+          "continuity_requirements": ["Tờ phiếu còn dính mực tím."],
+          "target_words": 420,
+          "creative": {
+            "depends_on": [{"chapter_id": "001", "scene_id": "01"}],
+            "reveal_secrets": ["X01"],
+            "beat_rules": [
+              {"beat": 1, "requires": ["mai_co_phieu"], "knowledge_learned": [{"character": "Mai", "fact_id": "X01"}]},
+              {"beat": 2, "knowledge_used": [{"character": "Mai", "fact_id": "X01"}]}
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
