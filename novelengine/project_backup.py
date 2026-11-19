@@ -145,7 +145,7 @@ def create_backup(project_id: str) -> str:
 def _allowed(name: str) -> bool:
     return (name in {'story.db', SIDECAR_FILE, 'outline.json', 'outline_candidate.json',
                      'voice_bible.md', STATE_FILE, 'manifest.json'}
-            or bool(re.fullmatch(r'exports/chapter_[A-Za-z0-9_-]+\\.md', name)))
+            or bool(re.fullmatch(r'exports/chapter_[A-Za-z0-9_-]+\.md', name)))
 
 
 def _check_archive(archive: zipfile.ZipFile) -> list:
@@ -210,7 +210,13 @@ def _verify_staged(staging: Path, *, project_id: str) -> dict:
             for event in store.read().approved_events():
                 if event.scene_revision is None:
                     continue
-                chapter, scene = contract.position_to_ids(event.position)
+                chapters = contract.to_v4()['chapters']
+                try:
+                    chapter_obj = chapters[event.position.chapter - 1]
+                    scene_obj = chapter_obj['scenes'][event.position.scene - 1]
+                    chapter, scene = chapter_obj['id'], scene_obj['id']
+                except (IndexError, TypeError):
+                    raise ValueError('Sự kiện Creative trỏ vào cảnh ngoài dàn ý.') from None
                 row = c.execute(
                     'SELECT id FROM scene_versions WHERE id=? AND chapter=? AND scene=?',
                     (event.scene_revision, chapter, scene),
