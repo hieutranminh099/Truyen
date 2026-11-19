@@ -10,6 +10,7 @@ import os
 import sqlite3
 import tempfile
 from pathlib import Path
+from contextlib import closing
 
 
 class FixtureAI:
@@ -78,7 +79,7 @@ def run(*, real: bool):
         result = process_scene(pid, outline, chapter, scene, ai)
         archive = project_dir(pid) / 'backups' / create_backup(pid)
         recovered = restore_backup(archive, pid, data_root=Path(restore_root))
-        with sqlite3.connect(Path(restore_root) / 'projects' / pid / 'story.db') as db:
+        with closing(sqlite3.connect(Path(restore_root) / 'projects' / pid / 'story.db')) as db:
             count = db.execute('SELECT COUNT(*) FROM scene_versions').fetchone()[0]
         if count != 2 or recovered['ledger_revision'] != 4:
             raise RuntimeError('Mất phiên bản cảnh hoặc revision ledger khi restore.')
