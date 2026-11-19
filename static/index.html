@@ -1,40 +1,65 @@
-<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#101722"><title>Novel Engine Hybrid</title><link rel="stylesheet" href="/app.css"></head>
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="color-scheme" content="dark"><meta name="theme-color" content="#101722"><title>Novel Engine V4.1 — Không gian viết truyện</title><link rel="stylesheet" href="/app.css"></head>
 <body>
 <div class="shell">
   <aside class="sidebar" aria-label="Điều hướng chính">
     <div class="brand"><div class="brand-icon">N</div><div><strong>NOVEL ENGINE</strong><small>HYBRID · V4.1</small></div></div>
     <nav id="menu">
-      <button class="nav active" data-panel="dashboard"><span>◈</span> Tổng quan</button>
-      <button class="nav" data-panel="outline"><span>▤</span> Dàn ý & AI đạo diễn</button>
-      <button class="nav" data-panel="jobs"><span>✧</span> Viết tự động</button>
-      <button class="nav" data-panel="drafts"><span>▣</span> Bản thảo</button>
-      <button class="nav" data-panel="memory"><span>◉</span> Trí nhớ truyện</button>
-      <button class="nav" data-panel="library"><span>◇</span> Kho truyện RAG</button>
-      <button class="nav" data-panel="settings"><span>⚙</span> Cài đặt & kết nối</button>
+      <button class="nav active" data-panel="dashboard"><span aria-hidden="true">◈</span> Tổng quan</button>
+      <button class="nav" data-panel="outline"><span aria-hidden="true">▤</span> Dàn ý & nhân vật</button>
+      <button class="nav" data-panel="jobs"><span aria-hidden="true">✧</span> Viết truyện</button>
+      <button class="nav" data-panel="drafts"><span aria-hidden="true">▣</span> Bản thảo</button>
+      <button class="nav" data-panel="memory"><span aria-hidden="true">◉</span> Trí nhớ truyện</button>
+      <button class="nav" data-panel="library"><span aria-hidden="true">◇</span> Tài liệu tham khảo</button>
+      <button class="nav" data-panel="settings"><span aria-hidden="true">⚙</span> Cài đặt</button>
     </nav>
     <div class="sidebar-foot"><span class="dot" id="server-dot"></span><span id="server-label">Đang kết nối...</span></div>
   </aside>
   <main class="main">
     <header class="topbar">
       <div><small class="eyebrow">BỘ MÁY SÁNG TÁC THÔNG MINH</small><h1 id="page-title">Tổng quan dự án</h1></div>
-      <div class="toolbar"><select aria-label="Dự án" id="project-select"></select><button id="new-project" class="btn secondary" title="Tạo dự án">+ Dự án</button></div>
+      <div class="toolbar"><select aria-label="Dự án" id="project-select"></select><button id="new-project" class="btn secondary" title="Tạo truyện mới">+ Truyện mới</button></div>
     </header>
     <div id="alert" class="alert" role="status" aria-live="polite" hidden></div>
     <section id="panel-dashboard" class="panel active">
-      <div class="hero"><div><span class="tag">LOCAL FIRST · CLOUD OPTIONAL</span><h2>Biến dàn ý thành tiểu thuyết.</h2><p>AI mạnh lo cấu trúc. Qwen viết cảnh. Bộ nhớ giữ mạch truyện. Bạn luôn có quyền duyệt.</p><button class="btn primary" data-go="jobs">Bắt đầu sáng tác →</button></div><div class="hero-glyph">✦</div></div>
+      <div class="hero">
+        <div class="hero-copy">
+          <span class="tag">KHÔNG GIAN SÁNG TÁC CỦA BẠN</span>
+          <h2>Viết truyện dễ hơn, giữ mạch truyện tốt hơn.</h2>
+          <p>Tạo dàn ý, chọn giọng văn rồi để Qwen hỗ trợ viết từng cảnh. Bạn luôn là người quyết định nội dung cuối cùng.</p>
+          <div class="hero-actions">
+            <button class="btn primary" data-go="outline">Chuẩn bị dàn ý <span aria-hidden="true">→</span></button>
+            <button class="btn ghost" data-go="jobs">Đến trang viết truyện</button>
+          </div>
+        </div>
+        <div class="hero-visual" aria-hidden="true">
+          <div class="visual-title">TỪ Ý TƯỞNG ĐẾN BẢN THẢO</div>
+          <div class="visual-step"><span>01</span> Dàn ý rõ ràng</div>
+          <div class="visual-step"><span>02</span> AI viết và biên tập</div>
+          <div class="visual-step"><span>03</span> Bạn đọc và duyệt</div>
+        </div>
+      </div>
+      <section class="quickstart" aria-label="Hướng dẫn bắt đầu">
+        <div class="quickstart-heading"><h2>Bắt đầu từ đâu?</h2><p>Chỉ cần làm lần lượt 3 bước. Không cần biết lập trình.</p></div>
+        <div class="quickstart-grid">
+          <button class="quickstep" data-go="outline"><span class="quick-number">01</span><strong>Chuẩn bị dàn ý</strong><small>Đặt tên, xây nhân vật và lên các cảnh cần viết.</small><span class="quick-action">Mở dàn ý →</span></button>
+          <button class="quickstep" data-go="jobs"><span class="quick-number">02</span><strong>Cho AI viết</strong><small>Qwen viết từng cảnh, kiểm tra và biên tập bản nháp.</small><span class="quick-action">Mở trang viết →</span></button>
+          <button class="quickstep" data-go="drafts"><span class="quick-number">03</span><strong>Đọc và chỉnh sửa</strong><small>Xem bản thảo, sửa câu chữ và lưu các phiên bản.</small><span class="quick-action">Mở bản thảo →</span></button>
+        </div>
+        <div class="intro-notice">Đang xem một truyện có sẵn? Nhấn <strong>+ Truyện mới</strong> ở góc trên bên phải để bắt đầu câu chuyện riêng của bạn.</div>
+      </section>
       <div class="stats" id="stats"></div>
       <div class="columns"><article class="card"><div class="section-head"><h3>Tiến độ chương</h3><button class="btn ghost" id="refresh-dashboard">Làm mới</button></div><div id="chapter-list" class="stack"></div></article><article class="card"><h3>Quy trình hoạt động</h3><div class="steps"><p><b>01</b> AI mạnh lập dàn ý JSON</p><p><b>02</b> Qwen viết từng cảnh</p><p><b>03</b> Kiểm tra + biên tập văn phong</p><p><b>04</b> Duyệt chương và trí nhớ</p><p><b>05</b> Tiếp tục chương kế tiếp</p></div><button class="btn secondary" data-go="outline">Quản lý dàn ý</button></article></div>
     </section>
     <section id="panel-outline" class="panel">
-      <div class="section-head"><div><h2>Dàn ý từ AI mạnh</h2><p class="muted">Nhập JSON thủ công hoặc tạo bản đề xuất qua API nếu đã cấu hình.</p></div><button class="btn primary" id="save-outline">Lưu dàn ý</button></div>
-      <article class="card"><div class="split-line"><span class="tag">OUTLINE.JSON</span><span class="muted">Các cảnh cần id, goal, beats[]</span></div><textarea id="outline-text" rows="18" class="editor code-font" spellcheck="false" aria-label="Dàn ý JSON"></textarea><label class="check"><input type="checkbox" id="outline-confirm"> Tôi đã sao lưu và hiểu rằng thay đổi dàn ý khi đã viết có thể gây sai lệch ID chương/cảnh.</label></article>
+      <div class="section-head"><div><h2>Dàn ý & nhân vật</h2><p class="muted">Đây là nơi bạn quyết định nội dung truyện. Bạn có thể chỉnh dàn ý có sẵn hoặc nhờ AI gợi ý.</p></div><button class="btn primary" id="save-outline">Lưu dàn ý</button></div>
+      <article class="card"><details class="help-guide"><summary>Không biết JSON? Xem cách chuẩn bị dàn ý</summary><p>Bạn có thể nhờ ChatGPT tạo dàn ý theo mẫu trong thư mục <code>examples/planner_prompt_VI.md</code>, sau đó dán vào khung bên dưới. Tránh sửa ID chương/cảnh khi đã có bản thảo.</p></details><div class="split-line"><span class="tag">DÀN Ý (DẠNG JSON)</span><span class="muted">Các cảnh cần id, goal, beats[]</span></div><textarea id="outline-text" rows="18" class="editor code-font" spellcheck="false" aria-label="Dàn ý JSON"></textarea><label class="check"><input type="checkbox" id="outline-confirm"> Tôi đã sao lưu và hiểu rằng thay đổi dàn ý khi đã viết có thể gây sai lệch ID chương/cảnh.</label></article>
       <div class="columns"><article class="card"><div class="section-head"><h3>Voice Bible — giọng văn</h3><button class="btn secondary" id="save-voice">Lưu giọng văn</button></div><textarea id="voice-text" class="editor" rows="11" aria-label="Hồ sơ giọng văn"></textarea></article><article class="card"><h3>AI đạo diễn (tùy chọn)</h3><label for="plan-premise">Ý tưởng cốt truyện</label><textarea id="plan-premise" rows="5" placeholder="Đặt vấn đề, thể loại, nhân vật, yêu cầu về cốt truyện..."></textarea><div class="inline"><label>Số chương đề xuất <input id="plan-count" type="number" min="1" max="8" value="2"></label><label class="check"><input id="plan-cloud" type="checkbox"> Dùng API đám mây (có thể tính phí)</label></div><button class="btn secondary" id="create-plan">Đề xuất dàn ý</button><p class="muted">Bản AI tạo được lưu thành bản ứng viên, không tự ghi đè dàn ý hiện tại.</p><button class="btn ghost" id="load-candidate">Xem dàn ý ứng viên</button><button class="btn ghost" id="accept-candidate">Chấp nhận ứng viên</button></article></div>
     </section>
-    <section id="panel-jobs" class="panel"><div class="section-head"><div><h2>Hàng đợi sáng tác</h2><p class="muted">Tác vụ được lưu trên ổ đĩa; chỉ một tác vụ AI chạy tại một thời điểm.</p></div><button id="refresh-jobs" class="btn secondary">Làm mới</button></div><article class="card"><div class="inline"><label class="check"><input type="checkbox" id="cloud-critic"> Biên tập đánh giá bằng API đám mây (tùy chọn, có thể tính phí)</label><label class="check"><input type="checkbox" id="semantic"> Tìm kiếm embedding mỗi cảnh (chậm hơn)</label></div><button class="btn primary" id="start-series">▶ Viết/tiếp tục toàn bộ truyện</button><p class="muted">Mỗi chương dừng tại cổng duyệt tóm tắt. Sau khi duyệt, tác vụ tự tiếp tục chương sau.</p></article><div id="job-list" class="stack roomy"></div></section>
+    <section id="panel-jobs" class="panel"><div class="section-head"><div><h2>Viết truyện bằng AI</h2><p class="muted">Bấm bắt đầu khi dàn ý đã sẵn sàng. AI viết từng cảnh; bạn có thể tạm dừng, tiếp tục hoặc duyệt chương.</p></div><button id="refresh-jobs" class="btn secondary">Làm mới</button></div><article class="card"><div class="inline"><label class="check"><input type="checkbox" id="cloud-critic"> Biên tập đánh giá bằng API đám mây (tùy chọn, có thể tính phí)</label><label class="check"><input type="checkbox" id="semantic"> Tìm kiếm embedding mỗi cảnh (chậm hơn)</label></div><button class="btn primary" id="start-series">▶ Bắt đầu / tiếp tục viết truyện</button><p class="muted">Mỗi chương dừng tại cổng duyệt tóm tắt. Sau khi duyệt, tác vụ tự tiếp tục chương sau.</p></article><div id="job-list" class="stack roomy"></div></section>
     <section id="panel-drafts" class="panel"><div class="section-head"><div><h2>Bản thảo & phiên bản</h2><p class="muted">Đọc, xuất Markdown và hoàn tác từng cảnh.</p></div><button id="reload-drafts" class="btn secondary">Làm mới</button></div><article class="card"><div class="inline"><label>Chương <select id="draft-chapter"></select></label><label>Cảnh <select id="draft-scene"></select></label><button id="open-scene" class="btn primary">Đọc cảnh</button><button id="download-chapter" class="btn secondary">↓ Xuất chương</button></div></article><article class="card"><div class="section-head"><h3>Nội dung cảnh</h3><div class="btn-row"><button class="btn ghost" id="edit-scene">Sửa trực tiếp</button><button class="btn ghost" id="rewrite-scene">Viết lại bằng AI</button></div></div><div id="draft-text" class="manuscript">Chọn chương và cảnh để đọc.</div><div id="manual-edit-box" hidden><textarea id="manual-edit-text" class="editor" rows="18"></textarea><div class="btn-row"><button class="btn primary" id="save-scene-edit">Lưu bản sửa</button><button class="btn secondary" id="cancel-scene-edit">Hủy sửa</button></div></div><hr><h3>Lịch sử phiên bản</h3><div id="version-list" class="stack"></div></article></section>
-    <section id="panel-memory" class="panel"><div class="section-head"><div><h2>Trí nhớ & canon</h2><p class="muted">Chỉ tóm tắt và dữ kiện đã duyệt mới được sử dụng trong các chương sau.</p></div><button id="reload-memory" class="btn secondary">Làm mới</button></div><div class="columns"><article class="card"><h3>Chương chờ duyệt</h3><div class="stack" id="summary-list"></div></article><article class="card"><h3>Thêm trí nhớ thủ công</h3><label>Loại <select id="memory-kind"><option value="fact">Sự thật / canon</option><option value="timeline">Dòng thời gian</option><option value="character">Trạng thái nhân vật</option><option value="knowledge">Ai biết bí mật gì</option><option value="thread">Chi tiết còn bỏ ngỏ</option></select></label><label>Chủ thể <input id="memory-subject" placeholder="Tên nhân vật hoặc địa điểm"></label><label>Nội dung <textarea id="memory-content" rows="5" placeholder="Thông tin chính xác cần ghi nhớ..."></textarea></label><button id="memory-add" class="btn secondary">Lưu mục chờ duyệt</button></article></div><article class="card"><h3>Sổ dữ kiện và lịch sử duyệt</h3><div id="memory-items" class="stack"></div></article>
+    <section id="panel-memory" class="panel"><div class="section-head"><div><h2>Trí nhớ truyện</h2><p class="muted">Duyệt các sự kiện quan trọng để AI nhớ đúng và không tiết lộ thông tin sai thời điểm.</p></div><button id="reload-memory" class="btn secondary">Làm mới</button></div><div class="columns"><article class="card"><h3>Chương chờ duyệt</h3><div class="stack" id="summary-list"></div></article><article class="card"><h3>Thêm trí nhớ thủ công</h3><label>Loại <select id="memory-kind"><option value="fact">Sự thật / canon</option><option value="timeline">Dòng thời gian</option><option value="character">Trạng thái nhân vật</option><option value="knowledge">Ai biết bí mật gì</option><option value="thread">Chi tiết còn bỏ ngỏ</option></select></label><label>Chủ thể <input id="memory-subject" placeholder="Tên nhân vật hoặc địa điểm"></label><label>Nội dung <textarea id="memory-content" rows="5" placeholder="Thông tin chính xác cần ghi nhớ..."></textarea></label><button id="memory-add" class="btn secondary">Lưu mục chờ duyệt</button></article></div><article class="card"><h3>Sổ dữ kiện và lịch sử duyệt</h3><div id="memory-items" class="stack"></div></article>
       <article class="card">
-        <div class="section-head"><div><h3>Creative Intelligence — trí nhớ có nguồn và thời điểm</h3>
+        <div class="section-head"><div><h3>Trí nhớ nâng cao (Creative)</h3>
         <p class="muted" id="creative-status">Đang đọc trạng thái Creative.</p></div>
         <button class="btn secondary" id="creative-refresh">Làm mới</button></div>
         <p class="muted">Chế độ Creative chỉ được bật tường minh trên dự án chưa có dữ liệu. Các quyết định duyệt lưu vào sidecar riêng; Writer kiểm tra thời điểm, POV và phiên bản cảnh nguồn.</p>
