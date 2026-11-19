@@ -228,15 +228,17 @@ def _verify_staged(staging: Path, *, project_id: str) -> dict:
     return manifest
 
 
-def restore_backup(source: Path, project_id: str) -> dict:
+def restore_backup(source: Path, project_id: str, *, data_root: Path | None = None) -> dict:
     """Never overwrite an existing project. No directory is published before validation."""
     project_id = validate_project_id(project_id)
     source = Path(source).resolve(strict=True)
     if not source.is_file() or source.stat().st_size > MAX_RESTORE_BYTES:
         raise ValueError('Tệp ZIP không hợp lệ hoặc vượt giới hạn upload.')
-    DATA_ROOT.mkdir(parents=True, exist_ok=True)
-    PROJECTS.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix='.restore-staging-', dir=DATA_ROOT) as tmp:
+    root = Path(data_root).expanduser().resolve() if data_root is not None else DATA_ROOT
+    projects_root = root / 'projects'
+    root.mkdir(parents=True, exist_ok=True)
+    projects_root.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.restore-staging-', dir=root) as tmp:
         staging = Path(tmp) / project_id
         staging.mkdir()
         with zipfile.ZipFile(source) as archive:
@@ -250,8 +252,8 @@ def restore_backup(source: Path, project_id: str) -> dict:
         manifest = _verify_staged(staging, project_id=project_id)
         (staging / 'manifest.json').unlink()
         # Atomic namespace mutation for cooperating application processes.
-        with project_write_lock(DATA_ROOT):
-            destination = project_dir(project_id)
+        with project_write_lock(root):
+            destination = projects_root / project_id
             if os.path.lexists(destination):
                 raise FileExistsError('Dự án đích đã tồn tại. Không ghi đè.')
             staging.rename(destination)
