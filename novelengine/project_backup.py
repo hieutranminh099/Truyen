@@ -9,12 +9,15 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
+import time
 import tempfile
 import zipfile
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from .config import DATA_ROOT, PROJECTS, project_dir, validate_project_id
 from .project_state import (
@@ -76,6 +79,71 @@ def _safe_source_files(directory: Path) -> list[Path]:
     return safe
 
 
+
+def _cleanup_abandoned_staging(backups: Path) -> None:
+    """Reclaim crashed backup staging, never removing a live writer's files.
+
+    New stages own a SQLite exclusive write reservation until zip publication.
+    After a process crash SQLite releases that reservation automatically.
+    Old unmarked stages are removed only after 24 hours: a process running
+    older code may still be writing a ZIP inside such a directory.
+    """
+    for candidate in backups.glob('.backup-staging-*'):
+        if candidate.is_symlink() or not candidate.is_dir():
+            continue
+        marker = candidate / '.backup-active.sqlite3'
+        if marker.is_symlink():
+            continue
+        if marker.is_file():
+            try:
+                uri = marker.resolve(strict=True).as_uri() + '?mode=rw'
+                with closing(sqlite3.connect(
+                    uri, uri=True, timeout=0, isolation_level=None
+                )) as guard:
+                    guard.execute('BEGIN IMMEDIATE')
+                    guard.execute('ROLLBACK')
+            except (OSError, sqlite3.DatabaseError):
+                # A live backup or a malformed/locked marker: do not delete.
+                continue
+        else:
+            try:
+                if time.time() - candidate.stat().st_mtime < 24 * 60 * 60:
+                    continue
+            except OSError:
+                continue
+        try:
+            shutil.rmtree(candidate)
+        except OSError:
+            # A Windows handle or a concurrent external process may still
+            # own a file. Leave it intact and retry on the next backup.
+            pass
+
+
+@contextmanager
+def _backup_stage(directory: Path, backups: Path):
+    """Create a leased stage atomically relative to other project backups."""
+    with project_write_lock(directory):
+        _cleanup_abandoned_staging(backups)
+        temporary = TemporaryDirectory(prefix='.backup-staging-', dir=backups)
+        guard = None
+        try:
+            marker = Path(temporary.name) / '.backup-active.sqlite3'
+            guard = sqlite3.connect(marker, timeout=0, isolation_level=None)
+            guard.execute('CREATE TABLE lease (singleton INTEGER PRIMARY KEY)')
+            guard.execute('BEGIN IMMEDIATE')
+        except BaseException:
+            if guard is not None:
+                guard.close()
+            temporary.cleanup()
+            raise
+    try:
+        yield Path(temporary.name)
+    finally:
+        guard.execute('ROLLBACK')
+        guard.close()
+        temporary.cleanup()
+
+
 def _validate_sidecar(staging: Path, project_id: str, layout_id: str) -> int:
     if not (staging / SIDECAR_FILE).is_file():
         raise RuntimeError('Creative sidecar là thành phần bắt buộc.')
@@ -91,16 +159,22 @@ def create_backup(project_id: str) -> str:
     backups.mkdir(parents=True, exist_ok=True)
     name = 'backup_' + datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%f') + '.zip'
     final_path = backups / name
-    with tempfile.TemporaryDirectory(prefix='.backup-staging-', dir=backups) as tmp:
-        staging = Path(tmp) / 'contents'
+    with _backup_stage(directory, backups) as tmp:
+        staging = tmp / 'contents'
         staging.mkdir()
         with project_write_lock(directory):
             state = project_state(directory, project_id=project_id)
             contract = validate_outline(load_outline(directory / 'outline.json')).require_contract()
             _sqlite_snapshot(directory / 'story.db', staging / 'story.db')
             if state['creative_enabled']:
+                # QA-04: SQLite Backup API can pad a source truncated by one
+                # byte into a valid output page. The original *physical* file
+                # must be checked before the first byte is copied.
+                source_revision = _validate_sidecar(directory, project_id, contract.layout_id)
                 _sqlite_snapshot(directory / SIDECAR_FILE, staging / SIDECAR_FILE)
                 ledger_revision = _validate_sidecar(staging, project_id, contract.layout_id)
+                if ledger_revision != source_revision:
+                    raise RuntimeError('Creative ledger revision thay đổi khi sao lưu.')
             else:
                 ledger_revision = None
             for source in _safe_source_files(directory):
@@ -129,7 +203,7 @@ def create_backup(project_id: str) -> str:
         (staging / 'manifest.json').write_text(
             json.dumps(manifest, sort_keys=True, ensure_ascii=False, indent=2), encoding='utf8'
         )
-        temporary_zip = Path(tmp) / 'staged.zip'
+        temporary_zip = tmp / 'staged.zip'
         with zipfile.ZipFile(temporary_zip, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
             for path in sorted(staging.rglob('*')):
                 if path.is_file() and _allowed(path.relative_to(staging).as_posix()):
