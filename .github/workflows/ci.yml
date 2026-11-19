@@ -49,3 +49,8 @@ jobs:
         env:
           NOVEL_CLOUD_ENABLED: '0'
         run: python smoke_windows.py
+      - name: Kiểm thử Creative Writer và Restore offline trên Windows
+        if: runner.os == 'Windows'
+        env:
+          NOVEL_CLOUD_ENABLED: '0'
+        run: python smoke_creative_windows.py
