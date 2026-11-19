@@ -301,7 +301,7 @@ class JobTests(Base):
                 c.close()
             self.assertEqual(exported.read_bytes(), original_export)
 
-            new_prose = 'An rời bến đò khi trời vừa hửng sáng. ' * 50
+            new_prose = 'An mang chuông đồng gỉ rời bến đò khi trời vừa hửng sáng. ' * 50
             self.ai.chat = lambda system, user, **opts: (
                 new_prose if opts['role'] == 'editor' else original_chat(system, user, **opts)
             )
@@ -311,7 +311,7 @@ class JobTests(Base):
             try:
                 self.assertEqual(get_scene(c, chapter_id, scene_id)['edited'], new_prose)
                 self.assertEqual(c.execute('SELECT status FROM summaries').fetchone()[0], 'stale')
-                self.assertEqual(c.execute('SELECT status FROM memory_items').fetchone()[0], 'revoked')
+                self.assertEqual(c.execute('SELECT status FROM memory_items').fetchone()[0], 'stale')
                 self.assertEqual(c.execute('SELECT COUNT(*) FROM scene_versions').fetchone()[0], 4)
             finally:
                 c.close()
@@ -333,7 +333,7 @@ class JobTests(Base):
                 entered.set()
                 if not release.wait(3):
                     raise TimeoutError('Test worker did not receive release')
-                return 'Bản viết lại trong lần thử hủy. ' * 80
+                return 'Bản viết lại có chuông đồng gỉ trong lần thử hủy. ' * 80
             return original_chat(system, user, **options)
 
         self.ai.chat = slow_chat
