@@ -60,6 +60,9 @@ class AI:
         msgs = [{'role':'system','content':system}] + (history or []) + [{'role':'user','content':user}]
         payload = {'model':settings.model,'stream':False,'think':False,'messages':msgs,
                    'options':{'num_ctx':settings.ctx,'num_predict':max_tokens,'temperature':temperature,'top_p':.91}}
+        seed = getattr(settings, 'seed', None)
+        if seed is not None:
+            payload['options']['seed'] = seed
         if structured: payload['format']='json'
         last=None
         for n in range(2):
