@@ -161,11 +161,13 @@ def projects():
 
 
 def save_outline(project_id: str, outline: dict | str):
-    out = parse_outline(outline)
-    d = project_dir(project_id)
-    if not d.is_dir(): raise FileNotFoundError('Dự án không tồn tại')
-    atomic_text(d / 'outline.json', json.dumps(out, ensure_ascii=False, indent=2))
-    return out
+    from .project_state import project_write_lock
+    with project_write_lock(project_dir(project_id)):
+        out = parse_outline(outline)
+        d = project_dir(project_id)
+        if not d.is_dir(): raise FileNotFoundError('Dự án không tồn tại')
+        atomic_text(d / 'outline.json', json.dumps(out, ensure_ascii=False, indent=2))
+        return out
 
 
 def save_scene(c, chapter, scene, stage, text='', review=None, *, commit=True):
