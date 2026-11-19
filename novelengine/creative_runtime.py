@@ -165,6 +165,9 @@ def creative_propose(project_id: str, data: dict) -> dict:
                 source_revision = scene_revision(c, chapter, scene)
             finally:
                 c.close()
+            if source_revision is None:
+                raise ValueError('Cảnh nguồn chưa có phiên bản đã lưu. '
+                                 'Không được gắn canon vào cảnh chưa viết.')
         kind, subject, value = (data.get('kind'), data.get('subject'), data.get('value'))
         if not all(isinstance(v, str) for v in (kind, subject, value)):
             raise ValueError('kind, subject và value phải là chuỗi.')
